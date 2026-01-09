@@ -32,7 +32,6 @@ pub use risten_core::{
     Chain,
     // Response
     Continue,
-    DispatchError,
     // Hook
     DynHook,
     DynListener,
@@ -62,6 +61,7 @@ pub use risten_core::{
     RouteResult,
     Router,
     RouterHook,
+    RoutingError,
     SyncExtractHandler,
     Then,
 };
@@ -129,7 +129,6 @@ pub mod prelude {
         BoxListener,
         Catch,
         Chain,
-        DispatchError,
         ExtractError,
         Filter,
         FilterMap,
@@ -145,6 +144,7 @@ pub mod prelude {
         Message,
         Pipeline,
         Router,
+        RoutingError,
         Then,
     };
 }

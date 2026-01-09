@@ -3,7 +3,7 @@
 //! This module provides HList-based implementation for compile-time
 //! optimized hook dispatch.
 
-use risten_core::{BoxError, DispatchError, Hook, HookResult, Message, RouteResult, Router};
+use risten_core::{BoxError, RoutingError, Hook, HookResult, Message, RouteResult, Router};
 
 /// HList terminator - represents an empty hook chain.
 pub struct HNil;
@@ -104,14 +104,14 @@ where
     E: Message + Sync + 'static,
     C: HookChain<E>,
 {
-    type Error = DispatchError;
+    type Error = RoutingError;
 
     async fn route(&self, event: &E) -> Result<RouteResult, Self::Error> {
         let result = self
             .chain
             .dispatch_chain(event)
             .await
-            .map_err(DispatchError::Listener)?;
+            .map_err(RoutingError::Listener)?;
 
         Ok(RouteResult {
             stopped: result == HookResult::Stop,

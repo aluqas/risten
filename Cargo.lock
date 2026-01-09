@@ -282,7 +282,6 @@ dependencies = [
 name = "risten-std"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "futures",
  "matchit",
  "phf",

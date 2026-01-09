@@ -7,7 +7,6 @@ description = "Standard implementations for the Risten event processing framewor
 [dependencies]
 risten-core = { path = "../risten-core" }
 futures = "0.3"
-async-trait = "0.1"
 thiserror = "2.0"
 
 # Optional integrations

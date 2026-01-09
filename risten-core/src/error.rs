@@ -17,7 +17,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub enum RistenError {
     /// An error occurred during event dispatch.
     #[error("dispatch error: {0}")]
-    Dispatch(#[from] DispatchError),
+    Dispatch(#[from] RoutingError),
 
     /// An error occurred in a hook.
     #[error("hook error: {0}")]
@@ -30,7 +30,7 @@ pub enum RistenError {
 
 /// Errors that can occur during event dispatch.
 #[derive(Error, Debug)]
-pub enum DispatchError {
+pub enum RoutingError {
     /// An error occurred in a listener.
     #[error("listener error")]
     Listener(#[source] BoxError),
@@ -81,8 +81,8 @@ impl From<BoxError> for HookError {
     }
 }
 
-impl From<BoxError> for DispatchError {
+impl From<BoxError> for RoutingError {
     fn from(err: BoxError) -> Self {
-        DispatchError::Listener(err)
+        RoutingError::Listener(err)
     }
 }

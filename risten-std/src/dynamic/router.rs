@@ -4,7 +4,7 @@
 //! Use when hook composition is determined at runtime (plugins, config-driven).
 
 use risten_core::{
-    BoxError, DispatchError, DynHook, HookResult, Listener, Message, RouteResult, Router,
+    BoxError, RoutingError, DynHook, HookResult, Listener, Message, RouteResult, Router,
 };
 
 /// A dynamic router that uses runtime hook resolution.
@@ -32,7 +32,7 @@ where
     P: HookProvider<E>,
     S: Send + Sync,
 {
-    type Error = DispatchError;
+    type Error = RoutingError;
 
     async fn route(&self, event: &E) -> Result<RouteResult, Self::Error> {
         let hooks = self.provider.resolve(event);
@@ -44,7 +44,7 @@ where
                     break;
                 }
                 Ok(HookResult::Next) => continue,
-                Err(e) => return Err(DispatchError::Listener(e)),
+                Err(e) => return Err(RoutingError::Listener(e)),
             }
         }
         Ok(RouteResult { stopped })

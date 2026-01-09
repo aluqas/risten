@@ -55,7 +55,7 @@
 //! - [`DispatchError`] - Routing-related errors
 //! - [`HookError`] - Hook execution errors
 
-#![deny(clippy::pub_use, clippy::wildcard_imports)]
+#![deny(clippy::wildcard_imports)]
 #![warn(missing_docs)]
 
 mod context;
@@ -68,8 +68,10 @@ mod response;
 mod router;
 
 // Re-exports
-pub use context::{AsyncFromEvent, Event, ExtractError, ExtractHandler, FromEvent, SyncExtractHandler};
-pub use error::{BoxError, DispatchError, HookError, RistenError};
+pub use context::{
+    AsyncFromEvent, Event, ExtractError, ExtractHandler, FromEvent, SyncExtractHandler,
+};
+pub use error::{BoxError, HookError, RistenError, RoutingError};
 pub use handler::{Handler, HandlerResult};
 pub use hook::{DynHook, Hook, HookResult};
 pub use listener::{

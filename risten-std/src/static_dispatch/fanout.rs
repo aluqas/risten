@@ -6,7 +6,7 @@
 
 use crate::static_dispatch::{HCons, HNil};
 use futures::future::join;
-use risten_core::{BoxError, DispatchError, Hook, HookResult, Message, RouteResult, Router};
+use risten_core::{BoxError, RoutingError, Hook, HookResult, Message, RouteResult, Router};
 
 /// Result of fanout dispatch including stop tracking.
 pub struct FanoutResult {
@@ -73,14 +73,14 @@ where
     E: Message + Sync + 'static,
     C: FanoutChain<E>,
 {
-    type Error = DispatchError;
+    type Error = RoutingError;
 
     async fn route(&self, event: &E) -> Result<RouteResult, Self::Error> {
         let result = self
             .chain
             .dispatch_fanout(event)
             .await
-            .map_err(DispatchError::Listener)?;
+            .map_err(RoutingError::Listener)?;
         Ok(RouteResult {
             stopped: result.stopped,
         })
