@@ -43,7 +43,10 @@ pub use risten_core::{
     Hook,
     HookResult,
     // Listener (with declarative pipeline methods)
+    BoxListener,
+    Catch,
     Chain,
+    DynListener,
     Filter,
     FilterMap,
     Listener,
@@ -99,6 +102,34 @@ pub mod hooks {
 pub mod listeners {
     #![allow(clippy::wildcard_imports)]
     pub use risten_std::listeners::*;
+}
+
+/// Testing utilities.
+pub mod testing {
+    #![allow(clippy::wildcard_imports)]
+    pub use risten_std::testing::*;
+}
+
+/// Prelude module - common imports for Risten.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// use risten::prelude::*;
+/// ```
+pub mod prelude {
+    pub use crate::{
+        // Core traits
+        Handler, Hook, HookResult, Listener, Message, Router,
+        // Listener combinators
+        BoxListener, Catch, Chain, Filter, FilterMap, Map, Pipeline, Then,
+        // Extraction
+        AsyncFromEvent, FromEvent,
+        // Errors
+        BoxError, DispatchError, ExtractError,
+        // Response
+        IntoResponse,
+    };
 }
 
 // ============================================================================

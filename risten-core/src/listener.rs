@@ -25,7 +25,7 @@
 //! ```
 
 use crate::{error::BoxError, handler::Handler, message::Message};
-use std::future::Future;
+use std::{future::Future, pin::Pin};
 
 /// A listener sits at the entry or intermediate points of the event pipeline.
 ///
@@ -199,6 +199,40 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
             listener: self,
             handler,
         }
+    }
+
+    /// Catches errors from this listener and optionally recovers.
+    ///
+    /// The error handler receives the error and can return:
+    /// - `Some(output)`: Recover with a fallback value
+    /// - `None`: Swallow the error and filter out the event
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let resilient = my_listener.catch(|err| {
+    ///     log::warn!("Listener error: {}", err);
+    ///     None // Swallow error, filter event
+    /// });
+    /// ```
+    fn catch<F>(self, handler: F) -> Catch<Self, F>
+    where
+        Self: Sized,
+        F: Fn(BoxError) -> Option<Self::Output> + Send + Sync + 'static,
+    {
+        Catch::new(self, handler)
+    }
+
+    /// Boxes this listener for dynamic dispatch.
+    ///
+    /// This is useful when you need to store heterogeneous listeners
+    /// or when the concrete type cannot be known at compile time.
+    fn boxed(self) -> BoxListener<In, Self::Output>
+    where
+        Self: Sized,
+        In: Sync,
+    {
+        BoxListener::new(self)
     }
 }
 
@@ -401,6 +435,132 @@ where
             }
             Ok(None) => Ok(HookResult::Next),
             Err(e) => Err(e),
+        }
+    }
+}
+
+// ============================================================================
+// BoxListener (Dynamic Listener)
+// ============================================================================
+
+/// A boxed, type-erased listener for dynamic dispatch.
+///
+/// Use this when you need to store heterogeneous listeners in collections
+/// or when the concrete listener type cannot be known at compile time.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let listeners: Vec<BoxListener<MyEvent, ProcessedEvent>> = vec![
+///     BoxListener::new(AuthListener),
+///     BoxListener::new(ValidationListener),
+/// ];
+/// ```
+pub struct BoxListener<In, Out> {
+    inner: Box<dyn DynListener<In, Output = Out>>,
+}
+
+impl<In, Out> BoxListener<In, Out>
+where
+    In: Message,
+    Out: Message,
+{
+    /// Create a new boxed listener from any `Listener` implementation.
+    pub fn new<L>(listener: L) -> Self
+    where
+        L: Listener<In, Output = Out>,
+        In: Sync,
+    {
+        Self {
+            inner: Box::new(listener),
+        }
+    }
+}
+
+impl<In, Out> Listener<In> for BoxListener<In, Out>
+where
+    In: Message + Sync,
+    Out: Message,
+{
+    type Output = Out;
+
+    async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
+        self.inner.listen_dyn(event).await
+    }
+}
+
+/// Object-safe version of [`Listener`] for dynamic dispatch.
+///
+/// This trait is automatically implemented for any `Listener` and is used
+/// internally by [`BoxListener`].
+pub trait DynListener<In>: Send + Sync + 'static {
+    /// The output type of this listener.
+    type Output: Message;
+
+    /// Object-safe listen method.
+    fn listen_dyn<'a>(
+        &'a self,
+        event: &'a In,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Self::Output>, BoxError>> + Send + 'a>>;
+}
+
+impl<L, In> DynListener<In> for L
+where
+    L: Listener<In>,
+    In: Message + Sync,
+{
+    type Output = L::Output;
+
+    fn listen_dyn<'a>(
+        &'a self,
+        event: &'a In,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Self::Output>, BoxError>> + Send + 'a>> {
+        Box::pin(self.listen(event))
+    }
+}
+
+// ============================================================================
+// Catch (Error Handling)
+// ============================================================================
+
+/// A listener that catches errors from the inner listener and optionally recovers.
+///
+/// The error handler can return `Some(output)` to recover with a fallback value,
+/// or `None` to swallow the error and filter out the event.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let resilient = my_listener.catch(|err| {
+///     log::warn!("Listener error: {}", err);
+///     None // Swallow error, filter event
+/// });
+/// ```
+pub struct Catch<L, F> {
+    listener: L,
+    handler: F,
+}
+
+impl<L, F> Catch<L, F> {
+    /// Create a new catch listener.
+    pub fn new(listener: L, handler: F) -> Self {
+        Self { listener, handler }
+    }
+}
+
+impl<L, F, In> Listener<In> for Catch<L, F>
+where
+    In: Message + Sync,
+    L: Listener<In>,
+    L::Output: Sync,
+    F: Fn(BoxError) -> Option<L::Output> + Send + Sync + 'static,
+{
+    type Output = L::Output;
+
+    async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
+        match self.listener.listen(event).await {
+            Ok(result) => Ok(result),
+            Err(e) => Ok((self.handler)(e)),
         }
     }
 }

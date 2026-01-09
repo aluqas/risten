@@ -19,3 +19,4 @@ pub mod dynamic;
 pub mod hooks;
 pub mod listeners;
 pub mod static_dispatch;
+pub mod testing;
