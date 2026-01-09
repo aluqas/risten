@@ -5,10 +5,8 @@
 
 use risten::{BoxError, Handler, Hook, HookResult, Listener, Message, Pipeline};
 
-// ============================================================================
-// Test Event Type
-// ============================================================================
 
+// Test Event Type
 #[derive(Clone, Debug)]
 struct TestEvent {
     id: u64,
@@ -17,10 +15,7 @@ struct TestEvent {
 
 impl Message for TestEvent {}
 
-// ============================================================================
 // Test: #[risten::event] basic usage
-// ============================================================================
-
 /// The simplest possible hook - just returns Next.
 #[risten::event]
 async fn simple_hook(event: &TestEvent) -> Result<HookResult, BoxError> {
@@ -44,10 +39,7 @@ async fn test_event_macro_basic() {
     assert!(matches!(result.unwrap(), HookResult::Next));
 }
 
-// ============================================================================
 // Test: #[risten::event] can access event data
-// ============================================================================
-
 #[risten::event]
 async fn logging_hook(event: &TestEvent) -> Result<HookResult, BoxError> {
     // Hook can read from event
@@ -82,10 +74,7 @@ async fn test_event_macro_accesses_data() {
     ));
 }
 
-// ============================================================================
 // Test: #[risten::handler] basic usage
-// ============================================================================
-
 /// A simple handler that transforms input.
 #[risten::handler]
 async fn echo_handler(input: String) -> String {
@@ -102,10 +91,7 @@ async fn test_handler_macro_basic() {
     assert_eq!(result, "Echo: hello");
 }
 
-// ============================================================================
 // Test: #[risten::handler] with complex types
-// ============================================================================
-
 #[derive(Clone, Debug)]
 struct Request {
     method: String,
@@ -143,10 +129,7 @@ async fn test_handler_macro_complex_types() {
     assert_eq!(resp.body, "GET /users");
 }
 
-// ============================================================================
 // Test: Hook works with static_hooks! macro
-// ============================================================================
-
 #[risten::event]
 async fn counter_hook(event: &TestEvent) -> Result<HookResult, BoxError> {
     // Just process and continue
@@ -172,10 +155,7 @@ async fn test_event_with_static_hooks() {
     assert!(result.is_ok());
 }
 
-// ============================================================================
 // Test: Handler works with Pipeline
-// ============================================================================
-
 struct ExtractContent;
 
 impl Listener<TestEvent> for ExtractContent {
@@ -202,10 +182,7 @@ async fn test_handler_with_pipeline() {
     assert!(result.is_ok());
 }
 
-// ============================================================================
 // Test: Generated structs have expected traits
-// ============================================================================
-
 #[risten::event]
 async fn trait_test_hook(_event: &TestEvent) -> Result<HookResult, BoxError> {
     Ok(HookResult::Next)
@@ -251,10 +228,7 @@ fn test_handler_macro_derives() {
     let _h4 = <handler_trait_test as Default>::default();
 }
 
-// ============================================================================
 // Test: #[risten::event(priority = N)]
-// ============================================================================
-
 #[risten::event(priority = 100)]
 async fn high_priority_hook(event: &TestEvent) -> Result<HookResult, risten::BoxError> {
     let _ = event;
@@ -298,10 +272,7 @@ async fn test_event_custom_name() {
     assert!(result.is_ok());
 }
 
-// ============================================================================
 // Test: #[risten::handler(name = "...")]
-// ============================================================================
-
 #[risten::handler(name = "CustomHandler")]
 async fn handler_internal_impl(input: String) -> String {
     format!("Custom: {}", input)

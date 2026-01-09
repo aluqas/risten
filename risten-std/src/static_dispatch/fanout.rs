@@ -75,7 +75,7 @@ where
         self.chain
             .dispatch_fanout(&event)
             .await
-            .map_err(DispatchError::ListenerError)
+            .map_err(DispatchError::Listener)
     }
 }
 

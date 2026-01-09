@@ -9,6 +9,13 @@
 //! - [`Listener`] - Event transformation and filtering
 //! - [`Router`] - Key-based routing abstraction
 //!
+//! ## Error Types
+//!
+//! - [`RistenError`] - Top-level error type
+//! - [`DispatchError`] - Dispatch-related errors
+//! - [`HookError`] - Hook execution errors
+//! - [`RouterError`] - Routing errors
+//!
 //! This crate has minimal dependencies and is designed to be imported by
 //! plugins and extensions that don't need the full `risten-std` implementation.
 
@@ -30,7 +37,7 @@ mod router;
 pub use borrowed::{BorrowedChain, BorrowedListener, RawMessage};
 pub use context::{ExtractError, ExtractHandler, FromEvent};
 pub use dispatcher::{Dispatcher, DynDispatcher};
-pub use error::{BoxError, DispatchError};
+pub use error::{BoxError, DispatchError, HookError, RistenError, RouterError};
 pub use handler::{Handler, HandlerResult};
 pub use hook::{DynHook, Hook, HookResult};
 pub use listener::{Chain, Listener, Pipeline};

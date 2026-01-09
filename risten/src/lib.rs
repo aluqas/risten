@@ -28,7 +28,7 @@ pub use risten_core::{
     // Zero-Copy
     BorrowedChain,
     BorrowedListener,
-    // Error
+    // Error types
     BoxError,
     // Listener
     Chain,
@@ -46,6 +46,7 @@ pub use risten_core::{
     Handler,
     HandlerResult,
     Hook,
+    HookError,
     HookResult,
     // Response
     IntoHookOutcome,
@@ -55,11 +56,13 @@ pub use risten_core::{
     Message,
     Pipeline,
     RawMessage,
+    RistenError,
     RouteResult,
     // Router
     Router,
     RouterBuildError,
     RouterBuilder,
+    RouterError,
 };
 
 // ============================================================================
@@ -157,7 +160,7 @@ where
             match hook.on_event_dyn(&event).await {
                 Ok(HookResult::Stop) => break,
                 Ok(HookResult::Next) => continue,
-                Err(e) => return Err(DispatchError::ListenerError(e)),
+                Err(e) => return Err(DispatchError::Listener(e)),
             }
         }
         Ok(())
@@ -185,7 +188,7 @@ impl<E: Message> HookProvider<E> for Registry<E> {
 // Macros
 // ============================================================================
 #[cfg(feature = "macros")]
-pub use risten_macros::{dispatch, event, handler, main};
+pub use risten_macros::{Message, dispatch, event, handler, main};
 
 // ============================================================================
 // Integration

@@ -1,21 +1,54 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Attribute, Data, DeriveInput, FnArg, Ident, ItemFn, LitInt, LitStr, Meta, Token, Type,
+    Attribute, Data, DeriveInput, Expr, FnArg, Ident, ItemFn, LitInt, LitStr, Meta, Token, Type,
     parse::{Parse, ParseStream},
     parse_macro_input,
 };
+
+// ============================================================================
+// Derive Macros
+// ============================================================================
+
+/// Derive macro for implementing `Message` trait.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// #[derive(Message)]
+/// struct MyEvent { ... }
+/// ```
+///
+/// This generates `impl risten::Message for MyEvent {}`.
+#[proc_macro_derive(Message)]
+pub fn derive_message(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    let expanded = quote! {
+        impl #impl_generics ::risten::Message for #name #ty_generics #where_clause {}
+    };
+
+    TokenStream::from(expanded)
+}
+
+// ============================================================================
+// Attribute Macros
+// ============================================================================
 
 /// Parsed attributes for #[risten::event(...)]
 struct EventArgs {
     priority: Option<i32>,
     name: Option<String>,
+    filter: Option<Expr>,
 }
 
 impl Parse for EventArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut priority = None;
         let mut name = None;
+        let mut filter = None;
 
         while !input.is_empty() {
             let ident: Ident = input.parse()?;
@@ -30,6 +63,10 @@ impl Parse for EventArgs {
                     let lit: LitStr = input.parse()?;
                     name = Some(lit.value());
                 }
+                "filter" => {
+                    let expr: Expr = input.parse()?;
+                    filter = Some(expr);
+                }
                 other => {
                     return Err(syn::Error::new(
                         ident.span(),
@@ -43,7 +80,11 @@ impl Parse for EventArgs {
             }
         }
 
-        Ok(EventArgs { priority, name })
+        Ok(EventArgs {
+            priority,
+            name,
+            filter,
+        })
     }
 }
 
@@ -102,6 +143,15 @@ pub fn event(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
+    // Generate filter check if filter attribute is present
+    let filter_check = args.filter.as_ref().map(|filter_expr| {
+        quote! {
+            if !(#filter_expr)(#event_pat) {
+                return ::core::result::Result::Ok(::risten::HookResult::Next);
+            }
+        }
+    });
+
     let expanded = quote! {
         #[allow(non_camel_case_types)]
         #[derive(Clone, Copy, Debug, Default)]
@@ -115,6 +165,7 @@ pub fn event(attr: TokenStream, item: TokenStream) -> TokenStream {
                 &self,
                 #event_pat: &#event_type,
             ) -> ::core::result::Result<::risten::HookResult, ::std::boxed::Box<dyn ::std::error::Error + Send + Sync>> {
+                #filter_check
                 #fn_block
             }
         }
