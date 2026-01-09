@@ -3,8 +3,7 @@
 //! These routers allow runtime modification and are explicitly in the `dynamic` module.
 
 use risten_core::{RouteResult, Router, RouterBuildError, RouterBuilder};
-use std::collections::HashMap;
-use std::hash::Hash;
+use std::{collections::HashMap, hash::Hash};
 
 /// A HashMap-based router for dynamic key-value routing.
 ///

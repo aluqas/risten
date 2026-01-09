@@ -19,6 +19,21 @@ impl<E: Message> Registry<E> {
         }
         Ok(HookResult::Next)
     }
+
+    /// Get an iterator over the registered hooks.
+    pub fn hooks(&self) -> impl Iterator<Item = &Arc<dyn DynHook<E>>> {
+        self.hooks.iter()
+    }
+
+    /// Get the number of registered hooks.
+    pub fn len(&self) -> usize {
+        self.hooks.len()
+    }
+
+    /// Check if the registry is empty.
+    pub fn is_empty(&self) -> bool {
+        self.hooks.is_empty()
+    }
 }
 
 /// Builder for constructing a Registry.
@@ -38,10 +53,15 @@ impl<E: Message> RegistryBuilder<E> {
         Self { hooks: Vec::new() }
     }
 
-    /// Register a hook.
+    /// Register a hook (builder pattern, consumes self).
     pub fn register<H: DynHook<E>>(mut self, hook: H) -> Self {
         self.hooks.push(Arc::new(hook));
         self
+    }
+
+    /// Register a hook (mutable reference pattern).
+    pub fn register_mut<H: DynHook<E>>(&mut self, hook: H) {
+        self.hooks.push(Arc::new(hook));
     }
 
     /// Build the registry.

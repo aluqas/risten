@@ -398,15 +398,82 @@ fn test_dispatch_match() {
     assert!(matches!(result, HookResult::Next));
 }
 
-#[test]
-fn test_dispatch_types_module() {
-    // dispatch_types module should have type aliases
-    use dispatch_types::*;
+// ============================================================================
+// Test: Static dispatch with #[handler = Type] attribute
+// ============================================================================
 
-    // Message, Ready, Error should be type aliases to inner types
-    let _: dispatch_types::Message = MessageEvent {
+// Define hooks for each event type
+#[risten::event]
+async fn on_message(event: &MessageEvent) -> Result<HookResult, risten::BoxError> {
+    if event.content.is_empty() {
+        Ok(HookResult::Stop)
+    } else {
+        Ok(HookResult::Next)
+    }
+}
+
+#[risten::event]
+async fn on_ready(event: &ReadyEvent) -> Result<HookResult, risten::BoxError> {
+    if event.session_id == 0 {
+        Ok(HookResult::Stop)
+    } else {
+        Ok(HookResult::Next)
+    }
+}
+
+// Define enum with static handler bindings via doc comments
+#[risten::dispatch]
+#[derive(Clone, Debug)]
+enum StaticAppEvent {
+    /// @handler(on_message)
+    Message(MessageEvent),
+
+    /// @handler(on_ready)
+    Ready(ReadyEvent),
+
+    // No handler - should return Next
+    Shutdown,
+}
+
+#[tokio::test]
+async fn test_static_dispatch_to_hooks() {
+    // Test Message variant with handler
+    let msg = StaticAppEvent::Message(MessageEvent {
+        content: "hello".to_string(),
+    });
+    let result = msg.dispatch_to_hooks().await;
+    assert!(result.is_ok());
+    assert!(matches!(result.unwrap(), HookResult::Next));
+
+    // Test Message with empty content (should Stop)
+    let empty_msg = StaticAppEvent::Message(MessageEvent {
+        content: "".to_string(),
+    });
+    let result = empty_msg.dispatch_to_hooks().await;
+    assert!(result.is_ok());
+    assert!(matches!(result.unwrap(), HookResult::Stop));
+
+    // Test Ready variant with handler
+    let ready = StaticAppEvent::Ready(ReadyEvent { session_id: 123 });
+    let result = ready.dispatch_to_hooks().await;
+    assert!(result.is_ok());
+    assert!(matches!(result.unwrap(), HookResult::Next));
+
+    // Test Shutdown (no handler) - should return Next
+    let shutdown = StaticAppEvent::Shutdown;
+    let result = shutdown.dispatch_to_hooks().await;
+    assert!(result.is_ok());
+    assert!(matches!(result.unwrap(), HookResult::Next));
+}
+
+#[test]
+fn test_static_dispatch_still_has_variant_name() {
+    // Static dispatch should still have all the other methods
+    let msg = StaticAppEvent::Message(MessageEvent {
         content: "test".to_string(),
-    };
-    let _: dispatch_types::Ready = ReadyEvent { session_id: 1 };
-    let _: dispatch_types::Error = ErrorEvent { code: 404 };
+    });
+    assert_eq!(msg.variant_name(), "Message");
+
+    let shutdown = StaticAppEvent::Shutdown;
+    assert_eq!(shutdown.variant_name(), "Shutdown");
 }

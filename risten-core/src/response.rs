@@ -57,3 +57,27 @@ where
         }
     }
 }
+
+// Additional common IntoResponse implementations
+
+impl IntoResponse for String {
+    fn into_response(self) -> Result<HookResult, Box<dyn std::error::Error + Send + Sync>> {
+        // String output means "handled successfully, continue"
+        Ok(HookResult::Next)
+    }
+}
+
+impl IntoResponse for &'static str {
+    fn into_response(self) -> Result<HookResult, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(HookResult::Next)
+    }
+}
+
+impl<T: IntoResponse> IntoResponse for Option<T> {
+    fn into_response(self) -> Result<HookResult, Box<dyn std::error::Error + Send + Sync>> {
+        match self {
+            Some(t) => t.into_response(),
+            None => Ok(HookResult::Next),
+        }
+    }
+}
