@@ -25,9 +25,6 @@
 // Core Traits & Types (from risten-core)
 // ============================================================================
 pub use risten_core::{
-    // Zero-Copy
-    BorrowedChain,
-    BorrowedListener,
     // Error types
     BoxError,
     // Listener
@@ -55,14 +52,7 @@ pub use risten_core::{
     // Message
     Message,
     Pipeline,
-    RawMessage,
     RistenError,
-    RouteResult,
-    // Router
-    Router,
-    RouterBuildError,
-    RouterBuilder,
-    RouterError,
 };
 
 // ============================================================================
@@ -79,28 +69,20 @@ pub use risten_std::{
 };
 
 // Dynamic Dispatch
-pub use risten_std::dynamic::{
-    Registry, RegistryBuilder,
-    routing::{HashMapRouter, HashMapRouterBuilder},
-};
+pub use risten_std::dynamic::{Registry, RegistryBuilder};
 
 /// Dynamic dispatch support module.
 pub mod dynamic {
-    pub use risten_std::dynamic::{
-        Registry, RegistryBuilder,
-        routing::{HashMapRouter, HashMapRouterBuilder},
-    };
+    pub use risten_std::dynamic::{Registry, RegistryBuilder};
 }
 
 /// Delivery strategies for event processing.
 pub mod delivery {
-    // Re-export placeholder - to be implemented in risten-std
     /// Sequential delivery strategy (processes hooks one by one).
     #[derive(Clone, Copy, Debug, Default)]
     pub struct SequentialDelivery;
 }
 
-// Standard Components Modules
 /// Standard hook implementations.
 pub mod hooks {
     #![allow(clippy::wildcard_imports)]
@@ -111,16 +93,6 @@ pub mod hooks {
 pub mod listeners {
     #![allow(clippy::wildcard_imports)]
     pub use risten_std::listeners::*;
-}
-
-/// Routing implementations.
-pub mod routing {
-    #![allow(clippy::wildcard_imports)]
-    pub use risten_std::routing::*;
-    // Re-export core Router trait for compatibility
-    pub use risten_core::{RouteResult, Router, RouterBuilder};
-    // Re-export dynamic routing
-    pub use risten_std::dynamic::routing::{HashMapRouter, HashMapRouterBuilder};
 }
 
 // ============================================================================

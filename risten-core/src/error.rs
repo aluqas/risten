@@ -5,7 +5,6 @@
 //! - [`RistenError`] - Top-level error type for all Risten operations
 //! - [`DispatchError`] - Errors during event dispatch
 //! - [`HookError`] - Errors from individual hooks
-//! - [`RouterError`] - Errors from routing operations
 
 use std::time::Duration;
 use thiserror::Error;
@@ -23,10 +22,6 @@ pub enum RistenError {
     /// An error occurred in a hook.
     #[error("hook error: {0}")]
     Hook(#[from] HookError),
-
-    /// An error occurred during routing.
-    #[error("routing error: {0}")]
-    Router(#[from] RouterError),
 
     /// A custom error occurred.
     #[error(transparent)]
@@ -71,22 +66,6 @@ pub enum HookError {
     /// A custom hook error.
     #[error(transparent)]
     Custom(BoxError),
-}
-
-/// Errors that can occur during routing.
-#[derive(Error, Debug)]
-pub enum RouterError {
-    /// No route was found for the given key.
-    #[error("no route found for key: {0}")]
-    NotFound(String),
-
-    /// Route already exists.
-    #[error("route already exists for key: {0}")]
-    AlreadyExists(String),
-
-    /// Invalid route configuration.
-    #[error("invalid route configuration: {0}")]
-    InvalidConfig(String),
 }
 
 // Convenience conversions

@@ -4,9 +4,9 @@
 //!
 //! This crate provides:
 //! - **Static dispatch**: [`HCons`], [`HNil`], [`StaticDispatcher`], [`static_hooks!`] macro
-//! - **Dynamic dispatch**: [`DynamicDispatcher`], [`Registry`], [`HashMapRouter`]
-//! - **Standard hooks**: Logging, Timeout, Routing
-//! - **Standard listeners**: Filter, Map, OptionalMap
+//! - **Dynamic dispatch**: [`Registry`]
+//! - **Standard hooks**: Logging, Timeout
+//! - **Standard listeners**: Filter, Map
 
 #![deny(clippy::pub_use, clippy::wildcard_imports)]
 #![warn(missing_docs)]
@@ -18,5 +18,4 @@ pub use risten_core;
 pub mod dynamic;
 pub mod hooks;
 pub mod listeners;
-pub mod routing;
 pub mod static_dispatch;
