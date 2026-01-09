@@ -1,4 +1,4 @@
-use risten::{Handler, Hook, HookResult, Listener, Message};
+use risten::{BoxError, Handler, Hook, HookResult, Listener, Message};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -13,10 +13,14 @@ pub struct TestEvent {
     pub content: String,
 }
 
+impl Message for TestEvent {}
+
 #[derive(Clone, Debug)]
 pub struct Trigger {
     pub data: String,
 }
+
+impl Message for Trigger {}
 
 // ============================================================================
 // Test Hooks and Handlers
@@ -60,13 +64,13 @@ pub struct PrefixListener {
 impl Listener<TestEvent> for PrefixListener {
     type Output = Trigger;
 
-    fn listen(&self, event: &TestEvent) -> Option<Self::Output> {
+    async fn listen(&self, event: &TestEvent) -> Result<Option<Self::Output>, BoxError> {
         if event.content.starts_with(&self.prefix) {
-            Some(Trigger {
+            Ok(Some(Trigger {
                 data: event.content[self.prefix.len()..].to_string(),
-            })
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
 }

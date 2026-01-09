@@ -18,7 +18,7 @@ pub struct HCons<H, T> {
 
 pub mod fanout;
 
-pub use fanout::{FanoutChain, StaticFanoutDispatcher};
+pub use fanout::{FanoutChain, StaticFanoutRouter};
 
 /// Trait for dispatching events through a static hook chain.
 pub trait HookChain<E: Message>: Send + Sync + 'static {
@@ -89,25 +89,25 @@ impl<T> StaticChainBuilder<T> {
 }
 
 // ============================================================================
-// Static Dispatcher
+// Static Router
 // ============================================================================
 
-/// A dispatcher that uses a statically-typed hook chain.
+/// A router that uses a statically-typed hook chain.
 ///
-/// This provides zero-cost abstraction as the entire dispatch chain
+/// This provides zero-cost abstraction as the entire routing chain
 /// is known at compile time and can be fully inlined.
-pub struct StaticDispatcher<C> {
+pub struct StaticRouter<C> {
     chain: C,
 }
 
-impl<C> StaticDispatcher<C> {
-    /// Create a new static dispatcher with the given hook chain.
+impl<C> StaticRouter<C> {
+    /// Create a new static router with the given hook chain.
     pub fn new(chain: C) -> Self {
         Self { chain }
     }
 
-    /// Dispatch an event through the static chain.
-    pub async fn dispatch<E>(&self, event: E) -> Result<(), BoxError>
+    /// Route an event through the static chain.
+    pub async fn route<E>(&self, event: E) -> Result<(), BoxError>
     where
         E: Message + Sync,
         C: HookChain<E>,

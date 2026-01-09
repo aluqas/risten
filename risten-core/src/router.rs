@@ -1,71 +1,140 @@
-//! Router abstraction for key-based dispatch.
+//! Router core traits.
+//!
+//! A Router is the execution engine that processes events through its registered hooks.
+//! It represents a collection of Hooks/Listeners and executes them in sequence or parallel.
+//!
+//! # Hierarchical Composition
+//!
+//! Routers can be composed hierarchically using [`RouterHook`], which wraps a Router
+//! and implements [`Hook`] for it. This allows a router to be registered as a hook
+//! in another router.
+//!
+//! ```rust,ignore
+//! let sub_router = StaticRouter::new(static_hooks![...]);
+//! let main_router = StaticRouter::new(static_hooks![
+//!     RouterHook::new(sub_router),  // Nested router as a hook
+//!     my_other_hook,
+//! ]);
+//! ```
 
-/// Result of a routing lookup.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RouteResult<'a, V> {
-    /// Route matched, contains the value.
-    Matched(&'a V),
-    /// No matching route found.
-    NotFound,
-}
+use crate::error::BoxError;
+use crate::hook::{Hook, HookResult};
+use crate::message::Message;
+use std::{future::Future, pin::Pin};
 
-impl<'a, V> RouteResult<'a, V> {
-    /// Returns true if the route was matched.
-    pub fn is_matched(&self) -> bool {
-        matches!(self, RouteResult::Matched(_))
-    }
-
-    /// Returns the matched value, if any.
-    pub fn matched(self) -> Option<&'a V> {
-        match self {
-            RouteResult::Matched(v) => Some(v),
-            RouteResult::NotFound => None,
-        }
-    }
-}
-
-/// A router that maps keys to values.
+/// A router that executes hooks for an event.
 ///
-/// This trait abstracts over different routing implementations,
-/// allowing the use of HashMap, phf, matchit, or custom routers.
-pub trait Router<K: ?Sized, V>: Send + Sync + 'static {
-    /// Look up a value by key.
-    fn route(&self, key: &K) -> RouteResult<'_, V>;
+/// Routers are the runtime execution engines in Risten. They hold a collection
+/// of hooks (which may include Listeners, other Routers, etc.) and execute them
+/// when an event is received.
+///
+/// # Hierarchy
+///
+/// Routers can be composed hierarchically by implementing `Hook` for `Router`,
+/// allowing a router to be registered as a hook in another router.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot route events of type `{E}`",
+    label = "missing `Router` implementation",
+    note = "Implement `Router<{E}>` to handle event routing."
+)]
+pub trait Router<E: Message>: Send + Sync {
+    /// The error type returned by routing operations.
+    type Error: std::error::Error + Send + Sync + 'static;
 
-    /// Check if a key exists in the router.
-    fn contains(&self, key: &K) -> bool {
-        self.route(key).is_matched()
+    /// Route the event through the registered hooks.
+    fn route(&self, event: E) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+/// Object-safe version of [`Router`] for dynamic dispatch.
+///
+/// Use this trait when you need runtime polymorphism (e.g., storing routers in collections).
+pub trait DynRouter<E>: Send + Sync {
+    /// The error type returned by routing operations.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Route the event through the registered hooks (dynamic dispatch version).
+    fn route<'a>(
+        &'a self,
+        event: E,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
+    where
+        E: Message + 'a;
+}
+
+// Blanket implementation: Any type implementing Router implements DynRouter automatically.
+impl<T, E> DynRouter<E> for T
+where
+    T: Router<E>,
+    E: Message,
+{
+    type Error = T::Error;
+
+    fn route<'a>(
+        &'a self,
+        event: E,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
+    where
+        E: Message + 'a,
+    {
+        Box::pin(self.route(event))
     }
 }
 
-/// Error type for router building operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RouterBuildError {
-    /// A duplicate key was inserted.
-    DuplicateKey(String),
-    /// The router could not be built.
-    BuildFailed(String),
+// ============================================================================
+// Router as Hook (Hierarchical Composition)
+// ============================================================================
+
+/// A wrapper that allows a [`Router`] to be used as a [`Hook`].
+///
+/// This enables hierarchical composition of routers - a router can be
+/// registered as a hook in another router, creating nested routing structures.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use risten::{RouterHook, StaticRouter, static_hooks};
+///
+/// // Create a sub-router for message events
+/// let message_router = StaticRouter::new(static_hooks![...]);
+///
+/// // Use it as a hook in the main router
+/// let main_router = StaticRouter::new(static_hooks![
+///     RouterHook::new(message_router),
+///     logging_hook,
+/// ]);
+/// ```
+pub struct RouterHook<R> {
+    router: R,
 }
 
-impl std::fmt::Display for RouterBuildError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RouterBuildError::DuplicateKey(key) => write!(f, "Duplicate key: {}", key),
-            RouterBuildError::BuildFailed(msg) => write!(f, "Build failed: {}", msg),
-        }
+impl<R> RouterHook<R> {
+    /// Create a new RouterHook wrapping the given router.
+    pub fn new(router: R) -> Self {
+        Self { router }
+    }
+
+    /// Get a reference to the inner router.
+    pub fn inner(&self) -> &R {
+        &self.router
+    }
+
+    /// Consume this wrapper and return the inner router.
+    pub fn into_inner(self) -> R {
+        self.router
     }
 }
 
-impl std::error::Error for RouterBuildError {}
-
-/// Builder for constructing routers.
-pub trait RouterBuilder<K, V>: Default + Send {
-    /// The router type this builder produces.
-    type Router: Router<K, V>;
-
-    /// Insert a key-value pair into the router.
-    fn insert(&mut self, key: K, value: V) -> Result<(), RouterBuildError>;
-
-    /// Build the router, consuming the builder.
-    fn build(self) -> Result<Self::Router, RouterBuildError>;
+impl<E, R> Hook<E> for RouterHook<R>
+where
+    E: Message + Clone + Sync,
+    R: Router<E> + 'static,
+{
+    async fn on_event(&self, event: &E) -> Result<HookResult, BoxError> {
+        // Clone the event and route it through the inner router
+        self.router
+            .route(event.clone())
+            .await
+            .map_err(|e| Box::new(e) as BoxError)?;
+        Ok(HookResult::Next)
+    }
 }

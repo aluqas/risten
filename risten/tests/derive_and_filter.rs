@@ -1,3 +1,5 @@
+#![cfg(feature = "macros")]
+
 use risten::{BoxError, Hook, HookResult, Message};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

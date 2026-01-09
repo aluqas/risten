@@ -1,11 +1,11 @@
-use risten::{Dispatcher, StaticDispatcher, static_hooks};
+use risten::{StaticRouter, static_hooks};
 use std::sync::{Arc, Mutex};
 
 mod common;
 use common::{OrderRecordingHook, TestEvent};
 
 #[tokio::test]
-async fn test_static_dispatcher() {
+async fn test_static_router() {
     let order = Arc::new(Mutex::new(Vec::new()));
 
     let hook1 = OrderRecordingHook {
@@ -23,10 +23,10 @@ async fn test_static_dispatcher() {
 
     // Using the static_hooks! macro preserves order
     let chain = static_hooks![hook1, hook2, hook3];
-    let dispatcher = StaticDispatcher::new(chain);
+    let router = StaticRouter::new(chain);
 
-    dispatcher
-        .dispatch(TestEvent {
+    router
+        .route(TestEvent {
             content: "test".to_string(),
         })
         .await

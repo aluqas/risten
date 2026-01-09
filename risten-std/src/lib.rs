@@ -3,8 +3,8 @@
 //! Standard implementations for the Risten event processing framework.
 //!
 //! This crate provides:
-//! - **Static dispatch**: [`HCons`], [`HNil`], [`StaticDispatcher`], [`static_hooks!`] macro
-//! - **Dynamic dispatch**: [`Registry`]
+//! - **Static routing**: [`HCons`], [`HNil`], [`StaticRouter`], [`static_hooks!`] macro
+//! - **Dynamic routing**: [`Registry`]
 //! - **Standard hooks**: Logging, Timeout
 //! - **Standard listeners**: Filter, Map
 

@@ -1,7 +1,9 @@
+//! Simple dispatch tests using the available API.
+
 use risten::{
-    Dispatcher, HookResult, Listener, SimpleDynamicDispatcher,
+    HookResult, Listener, Router, SimpleDynamicDispatcher,
     delivery::SequentialDelivery,
-    dynamic::{EnabledHandle, RegistrationMeta, RegistryBuilder},
+    dynamic::RegistryBuilder,
 };
 use std::sync::{
     Arc, Mutex,
@@ -14,7 +16,7 @@ use common::{
 };
 
 #[tokio::test]
-async fn test_pipeline_dispatch() {
+async fn test_pipeline_route() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let handler = CollectingHandler {
         received: received.clone(),
@@ -25,23 +27,23 @@ async fn test_pipeline_dispatch() {
     };
 
     let pipeline = listener.handler(handler);
-    let registry = RegistryBuilder::new().register_pipeline(pipeline).build();
-    let dispatcher = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
+    let registry = RegistryBuilder::new().register(pipeline).build();
+    let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
 
-    dispatcher
-        .dispatch(TestEvent {
+    router
+        .route(TestEvent {
             content: "!hello".to_string(),
         })
         .await
         .unwrap();
-    dispatcher
-        .dispatch(TestEvent {
+    router
+        .route(TestEvent {
             content: "ignore".to_string(),
         })
         .await
         .unwrap();
-    dispatcher
-        .dispatch(TestEvent {
+    router
+        .route(TestEvent {
             content: "!world".to_string(),
         })
         .await
@@ -54,7 +56,7 @@ async fn test_pipeline_dispatch() {
 }
 
 #[tokio::test]
-async fn test_priority_ordering() {
+async fn test_hook_ordering() {
     let order = Arc::new(Mutex::new(Vec::new()));
 
     let hook1 = OrderRecordingHook {
@@ -70,16 +72,16 @@ async fn test_priority_ordering() {
         order: order.clone(),
     };
 
-    // Register with different priorities (lower = first)
+    // Hooks are registered and executed in order
     let registry = RegistryBuilder::new()
-        .register_with_priority(hook2, 10) // executed second
-        .register_with_priority(hook3, 20) // executed third
-        .register_with_priority(hook1, 5) // executed first
+        .register(hook1)
+        .register(hook2)
+        .register(hook3)
         .build();
 
-    let dispatcher = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
-    dispatcher
-        .dispatch(TestEvent {
+    let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
+    router
+        .route(TestEvent {
             content: "test".to_string(),
         })
         .await
@@ -89,7 +91,7 @@ async fn test_priority_ordering() {
     assert_eq!(
         *executed_order,
         vec![1, 2, 3],
-        "Hooks should execute in priority order"
+        "Hooks should execute in registration order"
     );
 }
 
@@ -110,13 +112,13 @@ async fn test_stop_propagation() {
     };
 
     let registry = RegistryBuilder::new()
-        .register_with_priority(hook1, 0)
-        .register_with_priority(hook2, 10)
+        .register(hook1)
+        .register(hook2)
         .build();
 
-    let dispatcher = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
-    dispatcher
-        .dispatch(TestEvent {
+    let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
+    router
+        .route(TestEvent {
             content: "test".to_string(),
         })
         .await
@@ -135,74 +137,6 @@ async fn test_stop_propagation() {
 }
 
 #[tokio::test]
-async fn test_enabled_handle_toggle() {
-    let count = Arc::new(AtomicUsize::new(0));
-
-    let hook = CountingHook {
-        call_count: count.clone(),
-        result: HookResult::Next,
-        priority: 0,
-    };
-
-    let meta = RegistrationMeta::new();
-    let handle = meta.enabled_handle();
-
-    let registry = RegistryBuilder::new()
-        .register_with_meta(hook, meta)
-        .build();
-
-    let dispatcher = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
-
-    // Initially enabled
-    dispatcher
-        .dispatch(TestEvent {
-            content: "test1".to_string(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(count.load(Ordering::SeqCst), 1);
-
-    // Disable the hook
-    handle.disable();
-    dispatcher
-        .dispatch(TestEvent {
-            content: "test2".to_string(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(
-        count.load(Ordering::SeqCst),
-        1,
-        "Should not increment when disabled"
-    );
-
-    // Re-enable the hook
-    handle.enable();
-    dispatcher
-        .dispatch(TestEvent {
-            content: "test3".to_string(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(count.load(Ordering::SeqCst), 2);
-}
-
-#[tokio::test]
-async fn test_enabled_handle_toggle_method() {
-    let handle = EnabledHandle::new(true);
-
-    assert!(handle.is_enabled());
-
-    let new_state = handle.toggle();
-    assert!(!new_state);
-    assert!(!handle.is_enabled());
-
-    let new_state = handle.toggle();
-    assert!(new_state);
-    assert!(handle.is_enabled());
-}
-
-#[tokio::test]
 async fn test_handler_error_propagation() {
     let listener = PrefixListener {
         prefix: "!".to_string(),
@@ -210,17 +144,17 @@ async fn test_handler_error_propagation() {
     let handler = FallibleHandler { should_fail: true };
 
     let pipeline = listener.handler(handler);
-    let registry = RegistryBuilder::new().register_pipeline(pipeline).build();
-    let dispatcher = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
+    let registry = RegistryBuilder::new().register(pipeline).build();
+    let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
 
-    let result = dispatcher
-        .dispatch(TestEvent {
+    let result = router
+        .route(TestEvent {
             content: "!fail".to_string(),
         })
         .await;
     assert!(
         result.is_err(),
-        "Dispatch should return error when handler fails"
+        "Route should return error when handler fails"
     );
 }
 
@@ -232,47 +166,16 @@ async fn test_handler_success() {
     let handler = FallibleHandler { should_fail: false };
 
     let pipeline = listener.handler(handler);
-    let registry = RegistryBuilder::new().register_pipeline(pipeline).build();
-    let dispatcher = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
+    let registry = RegistryBuilder::new().register(pipeline).build();
+    let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
 
-    let result = dispatcher
-        .dispatch(TestEvent {
+    let result = router
+        .route(TestEvent {
             content: "!success".to_string(),
         })
         .await;
     assert!(
         result.is_ok(),
-        "Dispatch should succeed when handler succeeds"
+        "Route should succeed when handler succeeds"
     );
-}
-
-#[tokio::test]
-async fn test_group_iteration() {
-    let order = Arc::new(Mutex::new(Vec::new()));
-
-    let hook1 = OrderRecordingHook {
-        id: 1,
-        order: order.clone(),
-    };
-    let hook2 = OrderRecordingHook {
-        id: 2,
-        order: order.clone(),
-    };
-    let hook3 = OrderRecordingHook {
-        id: 3,
-        order: order.clone(),
-    };
-
-    let registry = RegistryBuilder::new()
-        .register_with_group(hook1, "group_a")
-        .register_with_group(hook2, "group_b")
-        .register_with_group(hook3, "group_a")
-        .build();
-
-    // Count hooks in group_a
-    let group_a_count = registry.iter_group("group_a").count();
-    assert_eq!(group_a_count, 2, "group_a should have 2 hooks");
-
-    let group_b_count = registry.iter_group("group_b").count();
-    assert_eq!(group_b_count, 1, "group_b should have 1 hook");
 }

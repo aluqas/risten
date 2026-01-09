@@ -1,13 +1,13 @@
 //! # risten - Static-First Event Processing Framework
 //!
 //! `risten` is an event processing framework designed with a **static-first** philosophy.
-//! Compile-time optimizations are the default path; dynamic dispatch is available as an
+//! Compile-time optimizations are the default path; dynamic routing is available as an
 //! explicit escape hatch for runtime flexibility.
 //!
 //! ## Quick Start (Static Path - Recommended)
 //!
 //! ```rust,ignore
-//! use risten::{static_hooks, StaticDispatcher, HCons, HNil, Hook, HookResult};
+//! use risten::{static_hooks, StaticRouter, HCons, HNil, Hook, HookResult};
 //!
 //! // Define your hooks
 //! struct MyHook;
@@ -15,7 +15,7 @@
 //!
 //! // Build a static chain (zero-cost at runtime)
 //! type MyChain = HCons<MyHook, HNil>;
-//! static DISPATCHER: StaticDispatcher<MyChain> = ...;
+//! static ROUTER: StaticRouter<MyChain> = ...;
 //! ```
 
 #![deny(clippy::pub_use, clippy::wildcard_imports)]
@@ -30,11 +30,10 @@ pub use risten_core::{
     // Listener
     Chain,
     DispatchError,
-    // Dispatcher Traits
-    Dispatcher,
-    DynDispatcher,
     // Hook
     DynHook,
+    // Router Traits
+    DynRouter,
     // Context / Extraction
     ExtractError,
     ExtractHandler,
@@ -53,25 +52,27 @@ pub use risten_core::{
     Message,
     Pipeline,
     RistenError,
+    Router,
+    RouterHook,
 };
 
 // ============================================================================
 // Standard Implementations (from risten-std)
 // ============================================================================
 
-// Static Dispatch
+// Static Routing
 pub use risten_std::{
     static_dispatch::{
-        HCons, HListLen, HNil, HookChain, StaticChainBuilder, StaticDispatcher,
-        fanout::{FanoutChain, StaticFanoutDispatcher},
+        HCons, HListLen, HNil, HookChain, StaticChainBuilder, StaticRouter,
+        fanout::{FanoutChain, StaticFanoutRouter},
     },
     static_fanout, static_hooks,
 };
 
-// Dynamic Dispatch
+// Dynamic Routing
 pub use risten_std::dynamic::{Registry, RegistryBuilder};
 
-/// Dynamic dispatch support module.
+/// Dynamic routing support module.
 pub mod dynamic {
     pub use risten_std::dynamic::{Registry, RegistryBuilder};
 }
@@ -99,17 +100,19 @@ pub mod listeners {
 // Compatibility Aliases
 // ============================================================================
 
-/// Alias for dynamic dispatcher (compatibility).
-pub type SimpleDynamicDispatcher<P, S> = DynamicDispatcher<P, S>;
+/// Alias for dynamic router (compatibility with SimpleDynamicDispatcher).
+pub type SimpleDynamicDispatcher<P, S> = DynamicRouter<P, S>;
 
-/// Dynamic dispatcher implementation.
-pub struct DynamicDispatcher<P, S> {
+/// Dynamic router implementation.
+///
+/// This router resolves hooks at runtime using a provider.
+pub struct DynamicRouter<P, S> {
     provider: P,
     _strategy: S,
 }
 
-impl<P, S> DynamicDispatcher<P, S> {
-    /// Create a new dynamic dispatcher.
+impl<P, S> DynamicRouter<P, S> {
+    /// Create a new dynamic router.
     pub fn new(provider: P, strategy: S) -> Self {
         Self {
             provider,
@@ -118,7 +121,7 @@ impl<P, S> DynamicDispatcher<P, S> {
     }
 }
 
-impl<E, P, S> Dispatcher<E> for DynamicDispatcher<P, S>
+impl<E, P, S> Router<E> for DynamicRouter<P, S>
 where
     E: Message + Clone + Sync,
     P: HookProvider<E>,
@@ -126,7 +129,7 @@ where
 {
     type Error = DispatchError;
 
-    async fn dispatch(&self, event: E) -> Result<(), Self::Error> {
+    async fn route(&self, event: E) -> Result<(), Self::Error> {
         let hooks = self.provider.resolve(&event);
         for hook in hooks {
             match hook.on_event_dyn(&event).await {

@@ -1,12 +1,12 @@
-//! Static fan-out dispatcher.
+//! Static fan-out router.
 //!
-//! This module provides a parallel dispatch implementation for static hook chains.
-//! Unlike `StaticDispatcher` which executes hooks sequentially, `StaticFanoutDispatcher`
+//! This module provides a parallel routing implementation for static hook chains.
+//! Unlike `StaticRouter` which executes hooks sequentially, `StaticFanoutRouter`
 //! executes all hooks in the chain concurrently.
 
 use crate::static_dispatch::{HCons, HNil};
 use futures::future::join;
-use risten_core::{BoxError, DispatchError, Dispatcher, Hook, HookResult, Message};
+use risten_core::{BoxError, DispatchError, Hook, HookResult, Message, Router};
 
 /// Trait for dispatching events through a static hook chain concurrently.
 pub trait FanoutChain<E: Message>: Send + Sync + 'static {
@@ -52,26 +52,27 @@ where
     }
 }
 
-/// A dispatcher that uses a statically-typed hook chain and executes them in parallel.
-pub struct StaticFanoutDispatcher<C> {
+/// A router that uses a statically-typed hook chain and executes them in parallel.
+pub struct StaticFanoutRouter<C> {
+    /// The hook chain.
     pub chain: C,
 }
 
-impl<C> StaticFanoutDispatcher<C> {
-    /// Create a new static fanout dispatcher.
+impl<C> StaticFanoutRouter<C> {
+    /// Create a new static fanout router.
     pub fn new(chain: C) -> Self {
         Self { chain }
     }
 }
 
-impl<E, C> Dispatcher<E> for StaticFanoutDispatcher<C>
+impl<E, C> Router<E> for StaticFanoutRouter<C>
 where
     E: Message + Sync + 'static,
     C: FanoutChain<E>,
 {
     type Error = DispatchError;
 
-    async fn dispatch(&self, event: E) -> Result<(), Self::Error> {
+    async fn route(&self, event: E) -> Result<(), Self::Error> {
         self.chain
             .dispatch_fanout(&event)
             .await

@@ -38,4 +38,4 @@ pub use hook::{DynHook, Hook, HookResult};
 pub use listener::{Chain, Listener, Pipeline};
 pub use message::Message;
 pub use response::{IntoHookOutcome, IntoResponse};
-pub use router::{DynRouter, Router};
+pub use router::{DynRouter, Router, RouterHook};

@@ -3,8 +3,9 @@
 //! These tests define the expected API surface. If tests fail,
 //! the implementation should be fixed, not the tests.
 
-use risten::{BoxError, Handler, Hook, HookResult, Listener, Message, Pipeline};
+#![cfg(feature = "macros")]
 
+use risten::{BoxError, Handler, Hook, HookResult, Listener, Message, Pipeline};
 
 // Test Event Type
 #[derive(Clone, Debug)]
@@ -139,19 +140,19 @@ async fn counter_hook(event: &TestEvent) -> Result<HookResult, BoxError> {
 
 #[tokio::test]
 async fn test_event_with_static_hooks() {
-    use risten::{StaticDispatcher, static_hooks};
+    use risten::{StaticRouter, static_hooks};
 
     // static_hooks! should accept macro-generated hooks
     let chain = static_hooks![simple_hook, counter_hook];
-    let dispatcher = StaticDispatcher::new(chain);
+    let router = StaticRouter::new(chain);
 
     let event = TestEvent {
         id: 42,
         content: "test".to_string(),
     };
 
-    // Dispatch should work
-    let result = dispatcher.dispatch(event).await;
+    // Route should work
+    let result = router.route(event).await;
     assert!(result.is_ok());
 }
 
@@ -161,8 +162,8 @@ struct ExtractContent;
 impl Listener<TestEvent> for ExtractContent {
     type Output = String;
 
-    fn listen(&self, event: &TestEvent) -> Option<String> {
-        Some(event.content.clone())
+    async fn listen(&self, event: &TestEvent) -> Result<Option<String>, BoxError> {
+        Ok(Some(event.content.clone()))
     }
 }
 
