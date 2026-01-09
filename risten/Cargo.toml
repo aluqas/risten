@@ -1,0 +1,36 @@
+[package]
+name = "risten"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2.0"
+bitflags = "2.6"
+trait-variant = "0.1"
+futures = "0.3"
+# Optional integrations
+risten-macros = { version = "0.1.0", path = "../risten-macros", optional = true }
+tracing = { version = "0.1", optional = true }
+tower = { version = "0.5", optional = true }
+linkme = { version = "0.3", optional = true }
+inventory = { version = "0.3.15", optional = true }
+
+# Integration backends
+matchit = { version = "0.9.1", optional = true }
+phf = { version = "0.13.1", features = ["macros"], optional = true }
+
+[features]
+default = []
+macros = ["dep:risten-macros"]
+tracing = ["dep:tracing"]
+tower = ["dep:tower"]
+linkme = ["dep:linkme"]
+inventory = ["dep:inventory"]
+matchit = ["dep:matchit"]
+phf = ["dep:phf"]
+
+
+[dev-dependencies]
+lazy_static = "1.5.0"
+tokio = { version = "1.0", features = ["macros", "rt", "time"] }
