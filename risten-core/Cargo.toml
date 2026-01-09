@@ -1,0 +1,8 @@
+[package]
+name = "risten-core"
+version = "0.1.0"
+edition = "2024"
+description = "Core traits for the Risten event processing framework"
+
+[dependencies]
+thiserror = "2.0"

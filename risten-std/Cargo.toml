@@ -1,0 +1,27 @@
+[package]
+name = "risten-std"
+version = "0.1.0"
+edition = "2024"
+description = "Standard implementations for the Risten event processing framework"
+
+[dependencies]
+risten-core = { path = "../risten-core" }
+futures = "0.3"
+async-trait = "0.1"
+thiserror = "2.0"
+
+# Optional integrations
+tracing = { version = "0.1", optional = true }
+matchit = { version = "0.9", optional = true }
+phf = { version = "0.13", features = ["macros"], optional = true }
+tokio = { version = "1.0", features = ["time"], optional = true }
+
+[features]
+default = []
+tracing = ["dep:tracing"]
+matchit = ["dep:matchit"]
+phf = ["dep:phf"]
+timeout = ["dep:tokio"]
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt", "time"] }
