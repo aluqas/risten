@@ -1,18 +1,31 @@
-//! Listener trait for event transformation.
+//! # Rich Abstraction Layer (Listener)
 //!
-//! Listeners are the high-level abstraction for event processing in Risten.
-//! Unlike the low-level [`Hook`] trait which operates as a primitive middleware,
-//! Listeners provide a richer API for:
-//! - **Gatekeeping**: Deciding whether an event should be processed further
-//! - **Transformation**: Converting events into different forms
+//! Wraps the primitive [`Hook`] layer to provide rich event processing features:
+//! type transformation, filtering, and declarative pipeline composition.
 //!
-//! ## Design Philosophy
+//! # Layer Position
 //!
-//! - **Listener** (Policy): Interprets event meaning, filters, transforms. No side effects.
-//! - **Handler** (Action): Performs business logic and side effects. Terminal.
-//! - **Hook** (Mechanism): Low-level control flow manipulation.
+//! This is **Layer 2 (Rich Abstraction)** in the Risten architecture.
+//! Listeners wrap Hook mechanics internally while exposing a higher-level API
+//! focused on interpretation and decision-making rather than raw execution.
 //!
-//! ## Declarative Pipeline Construction
+//! # Design Philosophy
+//!
+//! - **Wrapper**: Internally uses Hook mechanisms, adding gatekeeping and transformation
+//! - **Semantics**: "Listen and Decide" — not just "Do". Interpretation over action.
+//! - **No Side Effects**: Listeners focus on policy (pass/block/transform).
+//!   Side effects belong in [`Handler`].
+//!
+//! # Relationship to Other Layers
+//!
+//! | Layer | Role | Trait |
+//! |-------|------|-------|
+//! | Hook (L1) | Primitive execution | `on_event → Next/Stop` |
+//! | **Listener (L2)** | **Interpretation & transformation** | **`listen → Option<Out>`** |
+//! | Router (L3) | Event routing | `route → ()` |
+//! | Handler (L4) | Terminal business logic | `call → Out` |
+//!
+//! # Declarative Pipeline Construction
 //!
 //! Listeners support method chaining for building pipelines:
 //!
@@ -21,8 +34,14 @@
 //!     .filter(|e| !e.author.is_bot)           // Gatekeeping
 //!     .then(|e| async move { e.load_ctx() })  // Async enrichment
 //!     .map(|ctx| CommandContext::from(ctx))   // Transformation
-//!     .handler(CommandHandler);
+//!     .handler(CommandHandler);               // → becomes a Hook
 //! ```
+//!
+//! The final `.handler()` call produces a [`Pipeline`] which implements [`Hook`],
+//! completing the cycle back to the primitive layer.
+//!
+//! [`Hook`]: crate::Hook
+//! [`Handler`]: crate::Handler
 
 use crate::{error::BoxError, handler::Handler, message::Message};
 use std::{future::Future, pin::Pin};
@@ -236,10 +255,6 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
     }
 }
 
-// ============================================================================
-// Chain (and_then)
-// ============================================================================
-
 /// A chain of two listeners.
 ///
 /// Created by [`Listener::and_then`]. The first listener's output becomes the second's input.
@@ -264,10 +279,6 @@ where
         self.second.listen(&intermediate).await
     }
 }
-
-// ============================================================================
-// Filter
-// ============================================================================
 
 /// A listener that filters events based on a predicate.
 ///
@@ -298,10 +309,6 @@ where
     }
 }
 
-// ============================================================================
-// Map
-// ============================================================================
-
 /// A listener that transforms events using a synchronous mapper.
 ///
 /// Created by [`Listener::map`].
@@ -328,10 +335,6 @@ where
         Ok(Some((self.mapper)(output)))
     }
 }
-
-// ============================================================================
-// Then (async map)
-// ============================================================================
 
 /// A listener that transforms events using an async mapper.
 ///
@@ -361,10 +364,6 @@ where
     }
 }
 
-// ============================================================================
-// FilterMap
-// ============================================================================
-
 /// A listener that filters and transforms events in one step.
 ///
 /// Created by [`Listener::filter_map`].
@@ -391,10 +390,6 @@ where
         Ok((self.mapper)(output))
     }
 }
-
-// ============================================================================
-// Pipeline (Listener + Handler)
-// ============================================================================
 
 /// A complete pipeline connecting a Listener to a Handler.
 ///
@@ -438,10 +433,6 @@ where
         }
     }
 }
-
-// ============================================================================
-// BoxListener (Dynamic Listener)
-// ============================================================================
 
 /// A boxed, type-erased listener for dynamic dispatch.
 ///
@@ -518,10 +509,6 @@ where
         Box::pin(self.listen(event))
     }
 }
-
-// ============================================================================
-// Catch (Error Handling)
-// ============================================================================
 
 /// A listener that catches errors from the inner listener and optionally recovers.
 ///

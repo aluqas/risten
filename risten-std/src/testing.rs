@@ -18,10 +18,6 @@ use std::{
     },
 };
 
-// ============================================================================
-// Mock Context
-// ============================================================================
-
 /// A mock context for testing handlers that use extraction.
 ///
 /// # Example
@@ -61,10 +57,6 @@ impl<E, T: Clone + Send + Sync + 'static> FromEvent<E> for MockContext<T> {
         unimplemented!("MockContext::from_event should not be called directly in tests")
     }
 }
-
-// ============================================================================
-// Recording Hook
-// ============================================================================
 
 /// A hook that records all events it receives.
 ///
@@ -142,10 +134,6 @@ impl<E: Message + Clone + Sync> Hook<E> for RecordingHook<E> {
         Ok(self.result)
     }
 }
-
-// ============================================================================
-// Spy Listener
-// ============================================================================
 
 /// A listener that records events and can be programmed to return specific results.
 ///
@@ -234,10 +222,6 @@ where
     }
 }
 
-// ============================================================================
-// Counting Handler
-// ============================================================================
-
 /// A handler that counts invocations.
 ///
 /// # Example
@@ -295,10 +279,6 @@ impl<E: Message> Handler<E> for CountingHandler {
         self.count.fetch_add(1, Ordering::SeqCst);
     }
 }
-
-// ============================================================================
-// Pass-through Listener
-// ============================================================================
 
 /// A simple listener that passes events through unchanged.
 ///

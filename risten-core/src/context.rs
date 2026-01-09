@@ -1,8 +1,30 @@
-//! Extractor pattern for declarative event data extraction.
+//! # Context Extraction (Context Layer Support)
 //!
-//! This module provides traits for extracting data from events:
-//! - [`FromEvent`] - Synchronous extraction
-//! - [`AsyncFromEvent`] - Asynchronous extraction (for DB lookups, etc.)
+//! Provides the extractor pattern for declarative event data extraction,
+//! enabling the "Context injection" feature of the Handler layer.
+//!
+//! This module is part of **Layer 4 (Context)** in the Risten architecture.
+//! It allows user-defined handler functions to receive extracted context
+//! (e.g., user data, permissions, parsed commands) without manual boilerplate.
+//!
+//! # Extractors
+//!
+//! - [`FromEvent`] - Synchronous extraction (simple field access, parsing)
+//! - [`AsyncFromEvent`] - Asynchronous extraction (DB lookups, API calls)
+//!
+//! # Handler Integration
+//!
+//! Use [`ExtractHandler`] to wrap functions that accept extractors as arguments:
+//!
+//! ```rust,ignore
+//! // Function signature defines what to extract
+//! async fn my_handler(user: UserContext, cmd: ParsedCommand) -> Result<(), Error> {
+//!     // user and cmd are automatically extracted from the event
+//! }
+//!
+//! // Wrap with ExtractHandler to use with Listener
+//! let handler = ExtractHandler::new(my_handler);
+//! ```
 
 use crate::message::Message;
 use std::convert::Infallible;
@@ -126,7 +148,10 @@ where
 // Standard Extractors
 
 /// An extractor that clones the entire event.
+///
+/// Use this when you need the full event as an owned value in your handler.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Event<E>(pub E);
 
 impl<E: Clone> FromEvent<E> for Event<E> {
@@ -139,32 +164,75 @@ impl<E: Clone> FromEvent<E> for Event<E> {
 
 // Tuple Extractors
 
-impl<E, T1, T2> FromEvent<E> for (T1, T2)
-where
-    T1: FromEvent<E>,
-    T2: FromEvent<E>,
-    T1::Error: 'static,
-    T2::Error: 'static,
-{
-    type Error = ExtractError;
+/// Macro to implement FromEvent for tuples of extractors.
+macro_rules! impl_from_event_tuple {
+    ($($T:ident),+) => {
+        impl<E, $($T,)+> FromEvent<E> for ($($T,)+)
+        where
+            $(
+                $T: FromEvent<E>,
+                $T::Error: 'static,
+            )+
+        {
+            type Error = ExtractError;
 
-    fn from_event(event: &E) -> Result<Self, Self::Error> {
-        let t1 = T1::from_event(event).map_err(|e| ExtractError::new(e.to_string()))?;
-        let t2 = T2::from_event(event).map_err(|e| ExtractError::new(e.to_string()))?;
-        Ok((t1, t2))
-    }
+            #[allow(non_snake_case)]
+            fn from_event(event: &E) -> Result<Self, Self::Error> {
+                $(
+                    let $T = $T::from_event(event)
+                        .map_err(|e| ExtractError::new(e.to_string()))?;
+                )+
+                Ok(($($T,)+))
+            }
+        }
+    };
 }
+
+impl_from_event_tuple!(T1);
+impl_from_event_tuple!(T1, T2);
+impl_from_event_tuple!(T1, T2, T3);
+impl_from_event_tuple!(T1, T2, T3, T4);
+impl_from_event_tuple!(T1, T2, T3, T4, T5);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6, T7);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6, T7, T8);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_from_event_tuple!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
 
 // Handler Integration
 
-/// A handler that uses extractors to process events.
+/// A handler that uses extractors to process events (async version).
+///
+/// `ExtractHandler` wraps a user function and automatically extracts
+/// arguments from the event using the [`AsyncFromEvent`] trait.
+///
+/// # Multi-Argument Support
+///
+/// Supports functions with 0 to 12 extractor arguments:
+///
+/// ```rust,ignore
+/// // 0 arguments - just receives the event
+/// ExtractHandler::new(|| async { Ok(()) });
+///
+/// // 1 argument
+/// ExtractHandler::new(|user: User| async move { ... });
+///
+/// // 2 arguments
+/// ExtractHandler::new(|user: User, cmd: Command| async move { ... });
+///
+/// // Up to 12 arguments supported
+/// ```
+///
+/// For synchronous functions, use [`SyncExtractHandler`].
 pub struct ExtractHandler<F, E, Args> {
     func: F,
     _marker: std::marker::PhantomData<(E, Args)>,
 }
 
 impl<F, E, Args> ExtractHandler<F, E, Args> {
-    /// Create a new extract handler from a function.
+    /// Create a new extract handler from an async function.
     pub fn new(func: F) -> Self {
         Self {
             func,
@@ -173,23 +241,154 @@ impl<F, E, Args> ExtractHandler<F, E, Args> {
     }
 }
 
-// Handler impl for single-argument extractor (supports async extraction)
-impl<F, E, T, Out, Fut> crate::Handler<E> for ExtractHandler<F, E, (T,)>
-where
-    E: Message + Sync,
-    T: AsyncFromEvent<E> + Send + Sync + 'static,
-    T::Error: 'static,
-    F: Fn(T) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Out> + Send,
-    Out: crate::handler::HandlerResult,
-{
-    type Output = Result<Out, ExtractError>;
+/// A handler that uses extractors to process events (sync version).
+///
+/// `SyncExtractHandler` wraps a synchronous user function and automatically
+/// extracts arguments from the event using the [`FromEvent`] trait.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Synchronous handler with extractors
+/// fn my_sync_handler(user: User, cmd: Command) -> Result<(), Error> {
+///     // Synchronous business logic
+///     Ok(())
+/// }
+///
+/// let handler = SyncExtractHandler::new(my_sync_handler);
+/// ```
+///
+/// For asynchronous functions, use [`ExtractHandler`].
+pub struct SyncExtractHandler<F, E, Args> {
+    func: F,
+    _marker: std::marker::PhantomData<(E, Args)>,
+}
 
-    async fn call(&self, input: E) -> Self::Output {
-        // Use async extraction (works with both FromEvent and AsyncFromEvent)
-        let arg = T::from_event(&input)
-            .await
-            .map_err(|e| ExtractError::new(e.to_string()))?;
-        Ok((self.func)(arg).await)
+impl<F, E, Args> SyncExtractHandler<F, E, Args> {
+    /// Create a new sync extract handler from a synchronous function.
+    pub fn new(func: F) -> Self {
+        Self {
+            func,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
+
+/// Macro to implement Handler for ExtractHandler with N arguments.
+macro_rules! impl_extract_handler {
+    // Base case: 0 arguments
+    () => {
+        impl<F, E, Out, Fut> crate::Handler<E> for ExtractHandler<F, E, ()>
+        where
+            E: Message + Sync,
+            F: Fn() -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = Out> + Send,
+            Out: crate::handler::HandlerResult,
+        {
+            type Output = Out;
+
+            async fn call(&self, _input: E) -> Self::Output {
+                (self.func)().await
+            }
+        }
+    };
+
+    // Recursive case: 1+ arguments
+    ($($T:ident),+) => {
+        impl<F, E, $($T,)+ Out, Fut> crate::Handler<E> for ExtractHandler<F, E, ($($T,)+)>
+        where
+            E: Message + Sync,
+            $(
+                $T: AsyncFromEvent<E> + Send + Sync + 'static,
+                $T::Error: 'static,
+            )+
+            F: Fn($($T,)+) -> Fut + Send + Sync + 'static,
+            Fut: Future<Output = Out> + Send,
+            Out: crate::handler::HandlerResult,
+        {
+            type Output = Result<Out, ExtractError>;
+
+            #[allow(non_snake_case)]
+            async fn call(&self, input: E) -> Self::Output {
+                $(
+                    let $T = $T::from_event(&input)
+                        .await
+                        .map_err(|e| ExtractError::new(e.to_string()))?;
+                )+
+                Ok((self.func)($($T,)+).await)
+            }
+        }
+    };
+}
+
+impl_extract_handler!();
+impl_extract_handler!(T1);
+impl_extract_handler!(T1, T2);
+impl_extract_handler!(T1, T2, T3);
+impl_extract_handler!(T1, T2, T3, T4);
+impl_extract_handler!(T1, T2, T3, T4, T5);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6, T7);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
+
+/// Macro to implement Handler for SyncExtractHandler with N arguments.
+macro_rules! impl_sync_extract_handler {
+    // Base case: 0 arguments
+    () => {
+        impl<F, E, Out> crate::Handler<E> for SyncExtractHandler<F, E, ()>
+        where
+            E: Message + Sync,
+            F: Fn() -> Out + Send + Sync + 'static,
+            Out: crate::handler::HandlerResult,
+        {
+            type Output = Out;
+
+            async fn call(&self, _input: E) -> Self::Output {
+                (self.func)()
+            }
+        }
+    };
+
+    // Recursive case: 1+ arguments (sync extraction only)
+    ($($T:ident),+) => {
+        impl<F, E, $($T,)+ Out> crate::Handler<E> for SyncExtractHandler<F, E, ($($T,)+)>
+        where
+            E: Message + Sync,
+            $(
+                $T: FromEvent<E> + Send + Sync + 'static,
+                $T::Error: 'static,
+            )+
+            F: Fn($($T,)+) -> Out + Send + Sync + 'static,
+            Out: crate::handler::HandlerResult,
+        {
+            type Output = Result<Out, ExtractError>;
+
+            #[allow(non_snake_case)]
+            async fn call(&self, input: E) -> Self::Output {
+                $(
+                    let $T = $T::from_event(&input)
+                        .map_err(|e| ExtractError::new(e.to_string()))?;
+                )+
+                Ok((self.func)($($T,)+))
+            }
+        }
+    };
+}
+
+impl_sync_extract_handler!();
+impl_sync_extract_handler!(T1);
+impl_sync_extract_handler!(T1, T2);
+impl_sync_extract_handler!(T1, T2, T3);
+impl_sync_extract_handler!(T1, T2, T3, T4);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);

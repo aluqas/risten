@@ -6,7 +6,13 @@
 
 use crate::static_dispatch::{HCons, HNil};
 use futures::future::join;
-use risten_core::{BoxError, DispatchError, Hook, HookResult, Message, Router};
+use risten_core::{BoxError, DispatchError, Hook, HookResult, Message, RouteResult, Router};
+
+/// Result of fanout dispatch including stop tracking.
+pub struct FanoutResult {
+    /// Whether any hook returned Stop.
+    pub stopped: bool,
+}
 
 /// Trait for dispatching events through a static hook chain concurrently.
 pub trait FanoutChain<E: Message>: Send + Sync + 'static {
@@ -14,12 +20,12 @@ pub trait FanoutChain<E: Message>: Send + Sync + 'static {
     fn dispatch_fanout(
         &self,
         event: &E,
-    ) -> impl std::future::Future<Output = Result<(), BoxError>> + Send;
+    ) -> impl std::future::Future<Output = Result<FanoutResult, BoxError>> + Send;
 }
 
 impl<E: Message> FanoutChain<E> for HNil {
-    async fn dispatch_fanout(&self, _event: &E) -> Result<(), BoxError> {
-        Ok(())
+    async fn dispatch_fanout(&self, _event: &E) -> Result<FanoutResult, BoxError> {
+        Ok(FanoutResult { stopped: false })
     }
 }
 
@@ -29,26 +35,23 @@ where
     H: Hook<E>,
     T: FanoutChain<E>,
 {
-    async fn dispatch_fanout(&self, event: &E) -> Result<(), BoxError> {
-        // Start head and tail concurrently
+    async fn dispatch_fanout(&self, event: &E) -> Result<FanoutResult, BoxError> {
         let head_fut = self.head.on_event(event);
         let tail_fut = self.tail.dispatch_fanout(event);
 
-        // Wait for both to complete
         let (head_res, tail_res) = join(head_fut, tail_fut).await;
 
-        // Check results
-        match head_res {
-            Ok(HookResult::Stop) => {
-                // In fanout, Stop signifies "I handled it", but others ran anyway.
-                // We just note it (or ignore it) for purely parallel fire-and-forget.
-                // For this implementation, we simply propagate errors if any.
-            }
-            Ok(HookResult::Next) => {}
+        let head_stopped = match head_res {
+            Ok(HookResult::Stop) => true,
+            Ok(HookResult::Next) => false,
             Err(e) => return Err(e),
-        }
+        };
 
-        tail_res
+        let tail_result = tail_res?;
+
+        Ok(FanoutResult {
+            stopped: head_stopped || tail_result.stopped,
+        })
     }
 }
 
@@ -72,11 +75,15 @@ where
 {
     type Error = DispatchError;
 
-    async fn route(&self, event: &E) -> Result<(), Self::Error> {
-        self.chain
+    async fn route(&self, event: &E) -> Result<RouteResult, Self::Error> {
+        let result = self
+            .chain
             .dispatch_fanout(event)
             .await
-            .map_err(DispatchError::Listener)
+            .map_err(DispatchError::Listener)?;
+        Ok(RouteResult {
+            stopped: result.stopped,
+        })
     }
 }
 

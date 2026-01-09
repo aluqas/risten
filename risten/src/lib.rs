@@ -21,52 +21,50 @@
 #![deny(clippy::pub_use, clippy::wildcard_imports)]
 #![warn(missing_docs)]
 
-// ============================================================================
-// Core Traits & Types (from risten-core)
-// ============================================================================
 pub use risten_core::{
     // Context / Extraction
     AsyncFromEvent,
-    ExtractError,
-    ExtractHandler,
-    FromEvent,
     // Error types
     BoxError,
-    DispatchError,
-    HookError,
-    RistenError,
-    // Handler
-    Handler,
-    HandlerResult,
-    // Hook
-    DynHook,
-    Hook,
-    HookResult,
     // Listener (with declarative pipeline methods)
     BoxListener,
     Catch,
     Chain,
-    DynListener,
-    Filter,
-    FilterMap,
-    Listener,
-    Map,
-    Pipeline,
-    Then,
-    // Message
-    Message,
     // Response
-    IntoHookOutcome,
-    IntoResponse,
+    Continue,
+    DispatchError,
+    // Hook
+    DynHook,
+    DynListener,
     // Router Traits
     DynRouter,
+    Event,
+    ExtractError,
+    ExtractHandler,
+    Filter,
+    FilterMap,
+    FromEvent,
+    Handled,
+    // Handler
+    Handler,
+    HandlerResult,
+    Hook,
+    HookError,
+    HookResult,
+    IntoHookOutcome,
+    IntoResponse,
+    Listener,
+    Map,
+    // Message
+    Message,
+    Pipeline,
+    RistenError,
+    RouteResult,
     Router,
     RouterHook,
+    SyncExtractHandler,
+    Then,
 };
-
-// ============================================================================
-// Standard Implementations (from risten-std)
-// ============================================================================
 
 // Static Routing
 pub use risten_std::{
@@ -78,11 +76,15 @@ pub use risten_std::{
 };
 
 // Dynamic Routing
-pub use risten_std::dynamic::{Registry, RegistryBuilder};
+pub use risten_std::dynamic::{
+    DynamicRouter, HookProvider, Registry, RegistryBuilder, SimpleDynamicDispatcher,
+};
 
 /// Dynamic routing support module.
 pub mod dynamic {
-    pub use risten_std::dynamic::{Registry, RegistryBuilder};
+    pub use risten_std::dynamic::{
+        DynamicRouter, HookProvider, Registry, RegistryBuilder, SimpleDynamicDispatcher,
+    };
 }
 
 /// Delivery strategies for event processing.
@@ -119,109 +121,36 @@ pub mod testing {
 /// ```
 pub mod prelude {
     pub use crate::{
-        // Core traits
-        Handler, Hook, HookResult, Listener, Message, Router,
-        // Listener combinators
-        BoxListener, Catch, Chain, Filter, FilterMap, Map, Pipeline, Then,
         // Extraction
-        AsyncFromEvent, FromEvent,
+        AsyncFromEvent,
         // Errors
-        BoxError, DispatchError, ExtractError,
+        BoxError,
+        // Listener combinators
+        BoxListener,
+        Catch,
+        Chain,
+        DispatchError,
+        ExtractError,
+        Filter,
+        FilterMap,
+        FromEvent,
+        // Core traits
+        Handler,
+        Hook,
+        HookResult,
         // Response
         IntoResponse,
+        Listener,
+        Map,
+        Message,
+        Pipeline,
+        Router,
+        Then,
     };
 }
 
-// ============================================================================
-// Compatibility Aliases
-// ============================================================================
-
-/// Alias for dynamic router (compatibility with SimpleDynamicDispatcher).
-pub type SimpleDynamicDispatcher<P, S> = DynamicRouter<P, S>;
-
-/// Dynamic router implementation.
-///
-/// This router resolves hooks at runtime using a provider.
-pub struct DynamicRouter<P, S> {
-    provider: P,
-    _strategy: S,
-}
-
-impl<P, S> DynamicRouter<P, S> {
-    /// Create a new dynamic router.
-    pub fn new(provider: P, strategy: S) -> Self {
-        Self {
-            provider,
-            _strategy: strategy,
-        }
-    }
-}
-
-impl<E, P, S> Router<E> for DynamicRouter<P, S>
-where
-    E: Message + Sync,
-    P: HookProvider<E>,
-    S: Send + Sync,
-{
-    type Error = DispatchError;
-
-    async fn route(&self, event: &E) -> Result<(), Self::Error> {
-        let hooks = self.provider.resolve(event);
-        for hook in hooks {
-            match hook.on_event_dyn(event).await {
-                Ok(HookResult::Stop) => break,
-                Ok(HookResult::Next) => continue,
-                Err(e) => return Err(DispatchError::Listener(e)),
-            }
-        }
-        Ok(())
-    }
-}
-
-// DynamicRouter as Listener (Native Integration)
-impl<E, P, S> Listener<E> for DynamicRouter<P, S>
-where
-    E: Message + Sync + Clone,
-    P: HookProvider<E> + 'static,
-    S: Send + Sync + 'static,
-{
-    type Output = E;
-
-    async fn listen(&self, event: &E) -> Result<Option<Self::Output>, BoxError> {
-        // Execute the router (zero-copy routing)
-        Router::route(self, event)
-            .await
-            .map_err(|e| Box::new(e) as BoxError)?;
-        // Clone only when returning to pass ownership downstream
-        Ok(Some(event.clone()))
-    }
-}
-
-/// Provider trait for hook resolution.
-pub trait HookProvider<E: Message>: Send + Sync {
-    /// Resolve hooks for the given event.
-    fn resolve<'a>(&'a self, event: &E) -> Box<dyn Iterator<Item = &'a dyn DynHook<E>> + Send + 'a>
-    where
-        E: 'a;
-}
-
-impl<E: Message> HookProvider<E> for Registry<E> {
-    fn resolve<'a>(&'a self, _event: &E) -> Box<dyn Iterator<Item = &'a dyn DynHook<E>> + Send + 'a>
-    where
-        E: 'a,
-    {
-        Box::new(self.hooks().map(|h| h.as_ref() as &dyn DynHook<E>))
-    }
-}
-
-// ============================================================================
-// Macros
-// ============================================================================
 #[cfg(feature = "macros")]
 pub use risten_macros::{Message, dispatch, event, handler, main};
 
-// ============================================================================
-// Integration
-// ============================================================================
 #[cfg(feature = "inventory")]
 pub use inventory;

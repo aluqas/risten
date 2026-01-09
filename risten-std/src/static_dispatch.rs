@@ -3,7 +3,7 @@
 //! This module provides HList-based implementation for compile-time
 //! optimized hook dispatch.
 
-use risten_core::{BoxError, Hook, HookResult, Message};
+use risten_core::{BoxError, DispatchError, Hook, HookResult, Message, RouteResult, Router};
 
 /// HList terminator - represents an empty hook chain.
 pub struct HNil;
@@ -49,10 +49,6 @@ where
     }
 }
 
-// ============================================================================
-// Builder pattern
-// ============================================================================
-
 /// Builder for constructing static hook chains.
 pub struct StaticChainBuilder<T> {
     chain: T,
@@ -88,10 +84,6 @@ impl<T> StaticChainBuilder<T> {
     }
 }
 
-// ============================================================================
-// Static Router
-// ============================================================================
-
 /// A router that uses a statically-typed hook chain.
 ///
 /// This provides zero-cost abstraction as the entire routing chain
@@ -105,39 +97,54 @@ impl<C> StaticRouter<C> {
     pub fn new(chain: C) -> Self {
         Self { chain }
     }
+}
 
-    /// Route an event through the static chain (zero-copy).
-    pub async fn route<E>(&self, event: &E) -> Result<(), BoxError>
-    where
-        E: Message + Sync,
-        C: HookChain<E>,
-    {
-        self.chain.dispatch_chain(event).await?;
-        Ok(())
+impl<E, C> Router<E> for StaticRouter<C>
+where
+    E: Message + Sync + 'static,
+    C: HookChain<E>,
+{
+    type Error = DispatchError;
+
+    async fn route(&self, event: &E) -> Result<RouteResult, Self::Error> {
+        let result = self
+            .chain
+            .dispatch_chain(event)
+            .await
+            .map_err(DispatchError::Listener)?;
+
+        Ok(RouteResult {
+            stopped: result == HookResult::Stop,
+        })
     }
 }
 
 // Router as Listener (Native Integration)
+//
+// When a Router acts as a Listener, its routing result determines the output:
+// - `stopped = true` (a hook consumed the event) → `None` (event handled, skip downstream)
+// - `stopped = false` (event passed through) → `Some(event)` (continue pipeline)
 use risten_core::Listener;
 
 impl<C, E> Listener<E> for StaticRouter<C>
 where
-    E: Message + Sync + Clone,
+    E: Message + Sync + Clone + 'static,
     C: HookChain<E>,
 {
     type Output = E;
 
     async fn listen(&self, event: &E) -> Result<Option<Self::Output>, BoxError> {
-        // Execute the router (dispatch chain) - zero-copy routing
-        self.route(event).await?;
-        // Clone only when returning to pass ownership downstream
-        Ok(Some(event.clone()))
+        let result = Router::route(self, event)
+            .await
+            .map_err(|e| Box::new(e) as BoxError)?;
+
+        if result.stopped {
+            Ok(None)
+        } else {
+            Ok(Some(event.clone()))
+        }
     }
 }
-
-// ============================================================================
-// HList Length
-// ============================================================================
 
 /// Trait for computing HList length at compile time.
 pub trait HListLen {
@@ -152,10 +159,6 @@ impl HListLen for HNil {
 impl<H, T: HListLen> HListLen for HCons<H, T> {
     const LEN: usize = 1 + T::LEN;
 }
-
-// ============================================================================
-// Macro
-// ============================================================================
 
 /// Construct a static hook chain from a list of hooks.
 ///

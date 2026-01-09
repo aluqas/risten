@@ -1,4 +1,4 @@
-use risten::{StaticRouter, static_hooks};
+use risten::{Router, StaticRouter, static_hooks};
 use std::sync::{Arc, Mutex};
 
 mod common;

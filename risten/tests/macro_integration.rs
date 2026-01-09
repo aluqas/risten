@@ -249,10 +249,6 @@ fn test_event_priority_attribute() {
     assert_eq!(low_priority_hook::PRIORITY, -10);
 }
 
-// ============================================================================
-// Test: #[risten::event(name = "...")]
-// ============================================================================
-
 #[risten::event(name = "CustomNamedHook")]
 async fn internal_hook_impl(event: &TestEvent) -> Result<HookResult, risten::BoxError> {
     let _ = event;
@@ -288,10 +284,6 @@ async fn test_handler_custom_name() {
     assert_eq!(result, "Custom: test");
 }
 
-// ============================================================================
-// Test: Combined attributes
-// ============================================================================
-
 #[risten::event(priority = 50, name = "PrioritizedHook")]
 async fn combined_attrs_impl(event: &TestEvent) -> Result<HookResult, risten::BoxError> {
     let _ = event;
@@ -306,10 +298,6 @@ fn test_combined_attributes() {
     let debug_str = format!("{:?}", PrioritizedHook);
     assert!(debug_str.contains("PrioritizedHook"));
 }
-
-// ============================================================================
-// Test: #[risten::dispatch] on enum
-// ============================================================================
 
 #[derive(Clone, Debug)]
 struct MessageEvent {
@@ -369,10 +357,6 @@ fn test_dispatch_match() {
     let result = shutdown.dispatch_match();
     assert!(matches!(result, HookResult::Next));
 }
-
-// ============================================================================
-// Test: Static dispatch with #[handler = Type] attribute
-// ============================================================================
 
 // Define hooks for each event type
 #[risten::event]

@@ -1,4 +1,29 @@
-//! Handler trait for endpoint processing.
+//! # Context Layer (Handler)
+//!
+//! Wraps user-defined methods to inject framework-specific context (extractors,
+//! error handling, response conversion). This is the terminal point of the
+//! event processing pipeline.
+//!
+//! # Layer Position
+//!
+//! This is **Layer 4 (Context)** in the Risten architecture.
+//! Handlers are the endpoint where business logic executes.
+//!
+//! # Design Philosophy
+//!
+//! - **Wrapper**: Adds event-architecture features (Context extraction, etc.)
+//!   to plain user functions
+//! - **Terminal**: The final destination; no further propagation after a Handler
+//! - **Optional**: Users can implement `Handler` directly or use closures.
+//!   For advanced context injection, use [`ExtractHandler`].
+//!
+//! # Usage Patterns
+//!
+//! 1. **Direct closure**: `|event| async move { ... }`
+//! 2. **Struct implementation**: `impl Handler<MyEvent> for MyHandler`
+//! 3. **Extractor-based**: `ExtractHandler::new(|ctx: UserContext| async { ... })`
+//!
+//! [`ExtractHandler`]: crate::ExtractHandler
 
 use crate::message::Message;
 use std::future::Future;
@@ -7,9 +32,19 @@ use std::future::Future;
 pub trait HandlerResult: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> HandlerResult for T {}
 
-/// A handler represents the final destination of an event processing pipeline.
+/// The terminal endpoint of an event processing pipeline.
 ///
-/// It receives a fully owned message (Trigger) and performs async work.
+/// Handlers receive a fully owned message and perform async business logic.
+/// They represent the "action" phase where side effects occur.
+///
+/// # Layer Position
+///
+/// This is **Layer 4 (Context)** in the Risten architecture.
+/// Connected to a [`Listener`] via [`Pipeline`], the combination becomes a [`Hook`].
+///
+/// [`Listener`]: crate::Listener
+/// [`Pipeline`]: crate::Pipeline
+/// [`Hook`]: crate::Hook
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot handle input of type `{In}`",
     label = "missing `Handler<{In}>` implementation",

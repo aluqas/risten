@@ -4,10 +4,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-// ============================================================================
-// Test Event Types
-// ============================================================================
-
 #[derive(Clone, Debug)]
 pub struct TestEvent {
     pub content: String,
@@ -21,10 +17,6 @@ pub struct Trigger {
 }
 
 impl Message for Trigger {}
-
-// ============================================================================
-// Test Hooks and Handlers
-// ============================================================================
 
 pub struct CountingHook {
     pub call_count: Arc<AtomicUsize>,

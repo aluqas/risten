@@ -6,10 +6,6 @@ use syn::{
     parse_macro_input,
 };
 
-// ============================================================================
-// Derive Macros
-// ============================================================================
-
 /// Derive macro for implementing `Message` trait.
 ///
 /// # Usage
@@ -32,10 +28,6 @@ pub fn derive_message(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
-
-// ============================================================================
-// Attribute Macros
-// ============================================================================
 
 /// Parsed attributes for #[risten::event(...)]
 struct EventArgs {
@@ -215,20 +207,33 @@ impl Parse for HandlerArgs {
     }
 }
 
-/// Attribute macro to convert async functions into Handler implementations.
+/// Attribute macro to convert functions into Handler implementations.
 ///
-/// # V2 Features
+/// Supports both **async** and **sync** functions. The macro auto-detects
+/// which variant to use based on the `async` keyword.
+///
+/// # Features
 ///
 /// - **Single argument**: Direct handler (no extraction)
-/// - **Multiple arguments**: Each argument is extracted via `AsyncFromEvent`
+/// - **Multiple arguments**: Each argument is extracted via `AsyncFromEvent` (async)
+///   or `FromEvent` (sync)
+/// - **Auto-detect**: Sync vs async is determined by function signature
 ///
 /// # Usage
 ///
-/// ## Simple Handler (single argument)
+/// ## Async Handler (single argument)
 /// ```rust,ignore
 /// #[handler]
 /// async fn my_handler(msg: MessageEvent) -> Result<()> {
 ///     // msg is passed directly
+/// }
+/// ```
+///
+/// ## Sync Handler (single argument)
+/// ```rust,ignore
+/// #[handler]
+/// fn my_sync_handler(msg: MessageEvent) -> Result<()> {
+///     // Sync handler - wrapped in async automatically
 /// }
 /// ```
 ///
@@ -242,6 +247,17 @@ impl Parse for HandlerArgs {
 ///     // Both arguments are auto-extracted from the event
 /// }
 /// ```
+///
+/// ## Sync Extraction Handler
+/// ```rust,ignore
+/// #[handler(event = MessageEvent)]
+/// fn my_sync_handler(
+///     user: UserContext,    // Extracted via FromEvent<MessageEvent>
+///     cmd: Command,         // Extracted via FromEvent<MessageEvent>
+/// ) -> Result<()> {
+///     // Sync extraction
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as HandlerArgs);
@@ -250,12 +266,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_name = &input.sig.ident;
     let fn_vis = &input.vis;
     let fn_block = &input.block;
-
-    if input.sig.asyncness.is_none() {
-        return syn::Error::new_spanned(&input.sig.fn_token, "Handler function must be async")
-            .to_compile_error()
-            .into();
-    }
+    let is_async = input.sig.asyncness.is_some();
 
     let inputs = &input.sig.inputs;
     let arg_count = inputs.len();
@@ -285,6 +296,12 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         };
 
+        let call_body = if is_async {
+            quote! { #fn_block }
+        } else {
+            quote! { { #fn_block } }
+        };
+
         let expanded = quote! {
             #[allow(non_camel_case_types)]
             #[derive(Clone, Copy, Debug, Default)]
@@ -295,7 +312,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                 type Output = #output_type;
 
                 async fn call(&self, #input_pat: #input_type) -> Self::Output {
-                    #fn_block
+                    #call_body
                 }
             }
         };
@@ -340,11 +357,18 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                 arg_pats.push(quote! { #pat });
                 arg_types.push(quote! { #ty });
 
-                extraction_code.push(quote! {
-                    let #arg_name: #ty = <#ty as ::risten::AsyncFromEvent<_>>::from_event(&__event)
-                        .await
-                        .map_err(|e| ::risten::ExtractError::new(e.to_string()))?;
-                });
+                if is_async {
+                    extraction_code.push(quote! {
+                        let #arg_name: #ty = <#ty as ::risten::AsyncFromEvent<_>>::from_event(&__event)
+                            .await
+                            .map_err(|e| ::risten::ExtractError::new(e.to_string()))?;
+                    });
+                } else {
+                    extraction_code.push(quote! {
+                        let #arg_name: #ty = <#ty as ::risten::FromEvent<_>>::from_event(&__event)
+                            .map_err(|e| ::risten::ExtractError::new(e.to_string()))?;
+                    });
+                }
             }
             FnArg::Receiver(_) => {
                 return syn::Error::new_spanned(arg, "Handler cannot have self parameter")
@@ -359,6 +383,22 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         .map(|i| Ident::new(&format!("__arg_{}", i), fn_name.span()))
         .collect();
 
+    let inner_call = if is_async {
+        quote! {
+            async fn __inner(#(#arg_pats: #arg_types),*) -> #output_type {
+                #fn_block
+            }
+            ::core::result::Result::Ok(__inner(#(#arg_names),*).await)
+        }
+    } else {
+        quote! {
+            fn __inner(#(#arg_pats: #arg_types),*) -> #output_type {
+                #fn_block
+            }
+            ::core::result::Result::Ok(__inner(#(#arg_names),*))
+        }
+    };
+
     let expanded = quote! {
         #[allow(non_camel_case_types)]
         #[derive(Clone, Copy, Debug, Default)]
@@ -370,13 +410,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             async fn call(&self, __event: #event_type) -> Self::Output {
                 #(#extraction_code)*
-
-                // Call the original function with extracted arguments
-                async fn __inner(#(#arg_pats: #arg_types),*) -> #output_type {
-                    #fn_block
-                }
-
-                ::core::result::Result::Ok(__inner(#(#arg_names),*).await)
+                #inner_call
             }
         }
     };
