@@ -3,6 +3,12 @@
 //! A Router is the execution engine that processes events through its registered hooks.
 //! It represents a collection of Hooks/Listeners and executes them in sequence or parallel.
 //!
+//! # Zero-Copy Routing
+//!
+//! Routers take event references (`&E`) instead of owned events, enabling zero-copy
+//! event propagation through the routing pipeline. This avoids unnecessary clones
+//! when routing events through multiple hooks.
+//!
 //! # Hierarchical Composition
 //!
 //! Routers can be composed hierarchically using [`RouterHook`], which wraps a Router
@@ -17,9 +23,11 @@
 //! ]);
 //! ```
 
-use crate::error::BoxError;
-use crate::hook::{Hook, HookResult};
-use crate::message::Message;
+use crate::{
+    error::BoxError,
+    hook::{Hook, HookResult},
+    message::Message,
+};
 use std::{future::Future, pin::Pin};
 
 /// A router that executes hooks for an event.
@@ -27,6 +35,12 @@ use std::{future::Future, pin::Pin};
 /// Routers are the runtime execution engines in Risten. They hold a collection
 /// of hooks (which may include Listeners, other Routers, etc.) and execute them
 /// when an event is received.
+///
+/// # Zero-Copy Design
+///
+/// The `route` method takes a reference to the event (`&E`) rather than an owned
+/// event. This enables zero-copy routing where the same event can be processed
+/// by multiple hooks without cloning.
 ///
 /// # Hierarchy
 ///
@@ -42,7 +56,9 @@ pub trait Router<E: Message>: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Route the event through the registered hooks.
-    fn route(&self, event: E) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ///
+    /// Takes a reference to the event for zero-copy routing.
+    fn route(&self, event: &E) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
 /// Object-safe version of [`Router`] for dynamic dispatch.
@@ -53,9 +69,11 @@ pub trait DynRouter<E>: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Route the event through the registered hooks (dynamic dispatch version).
+    ///
+    /// Takes a reference to the event for zero-copy routing.
     fn route<'a>(
         &'a self,
-        event: E,
+        event: &'a E,
     ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
     where
         E: Message + 'a;
@@ -71,7 +89,7 @@ where
 
     fn route<'a>(
         &'a self,
-        event: E,
+        event: &'a E,
     ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>
     where
         E: Message + 'a,
@@ -126,13 +144,13 @@ impl<R> RouterHook<R> {
 
 impl<E, R> Hook<E> for RouterHook<R>
 where
-    E: Message + Clone + Sync,
+    E: Message + Sync,
     R: Router<E> + 'static,
 {
     async fn on_event(&self, event: &E) -> Result<HookResult, BoxError> {
-        // Clone the event and route it through the inner router
+        // Route the event through the inner router (zero-copy, no clone needed)
         self.router
-            .route(event.clone())
+            .route(event)
             .await
             .map_err(|e| Box::new(e) as BoxError)?;
         Ok(HookResult::Next)

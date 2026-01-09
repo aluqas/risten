@@ -72,9 +72,9 @@ where
 {
     type Error = DispatchError;
 
-    async fn route(&self, event: E) -> Result<(), Self::Error> {
+    async fn route(&self, event: &E) -> Result<(), Self::Error> {
         self.chain
-            .dispatch_fanout(&event)
+            .dispatch_fanout(event)
             .await
             .map_err(DispatchError::Listener)
     }

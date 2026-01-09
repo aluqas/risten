@@ -31,11 +31,11 @@ mod response;
 mod router;
 
 // Re-exports
-pub use context::{ExtractError, ExtractHandler, FromEvent};
+pub use context::{AsyncFromEvent, ExtractError, ExtractHandler, FromEvent};
 pub use error::{BoxError, DispatchError, HookError, RistenError};
 pub use handler::{Handler, HandlerResult};
 pub use hook::{DynHook, Hook, HookResult};
-pub use listener::{Chain, Listener, Pipeline};
+pub use listener::{Chain, Filter, FilterMap, Listener, Map, Pipeline, Then};
 pub use message::Message;
 pub use response::{IntoHookOutcome, IntoResponse};
 pub use router::{DynRouter, Router, RouterHook};

@@ -11,6 +11,18 @@
 //! - **Listener** (Policy): Interprets event meaning, filters, transforms. No side effects.
 //! - **Handler** (Action): Performs business logic and side effects. Terminal.
 //! - **Hook** (Mechanism): Low-level control flow manipulation.
+//!
+//! ## Declarative Pipeline Construction
+//!
+//! Listeners support method chaining for building pipelines:
+//!
+//! ```rust,ignore
+//! let pipeline = AuthListener
+//!     .filter(|e| !e.author.is_bot)           // Gatekeeping
+//!     .then(|e| async move { e.load_ctx() })  // Async enrichment
+//!     .map(|ctx| CommandContext::from(ctx))   // Transformation
+//!     .handler(CommandHandler);
+//! ```
 
 use crate::{error::BoxError, handler::Handler, message::Message};
 use std::future::Future;
@@ -79,9 +91,105 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
+    /// Filters the output of this listener using a predicate.
+    ///
+    /// If the predicate returns `false`, the event is dropped (returns `None`).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let filtered = my_listener.filter(|event| event.is_important());
+    /// ```
+    fn filter<F>(self, predicate: F) -> Filter<Self, F>
+    where
+        Self: Sized,
+        F: Fn(&Self::Output) -> bool + Send + Sync + 'static,
+    {
+        Filter {
+            listener: self,
+            predicate,
+        }
+    }
+
+    /// Transforms the output of this listener using a synchronous mapper.
+    ///
+    /// The mapper always succeeds (the event passes through transformed).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mapped = my_listener.map(|event| ProcessedEvent::from(event));
+    /// ```
+    fn map<F, Out>(self, mapper: F) -> Map<Self, F>
+    where
+        Self: Sized,
+        Out: Message,
+        F: Fn(Self::Output) -> Out + Send + Sync + 'static,
+    {
+        Map {
+            listener: self,
+            mapper,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Transforms the output of this listener using an async mapper.
+    ///
+    /// Use this for transformations that require async operations (e.g., DB lookups).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let enriched = my_listener.then(|event| async move {
+    ///     let user = db.get_user(event.user_id).await;
+    ///     EnrichedEvent { event, user }
+    /// });
+    /// ```
+    fn then<F, Out, Fut>(self, mapper: F) -> Then<Self, F>
+    where
+        Self: Sized,
+        Out: Message,
+        F: Fn(Self::Output) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Out> + Send,
+    {
+        Then {
+            listener: self,
+            mapper,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Filters and transforms the output in one step.
+    ///
+    /// If the mapper returns `None`, the event is dropped.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let filtered_mapped = my_listener.filter_map(|event| {
+    ///     if event.is_valid() {
+    ///         Some(ProcessedEvent::from(event))
+    ///     } else {
+    ///         None
+    ///     }
+    /// });
+    /// ```
+    fn filter_map<F, Out>(self, mapper: F) -> FilterMap<Self, F>
+    where
+        Self: Sized,
+        Out: Message,
+        F: Fn(Self::Output) -> Option<Out> + Send + Sync + 'static,
+    {
+        FilterMap {
+            listener: self,
+            mapper,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
     /// Connects this listener to a handler, creating a complete pipeline.
     ///
-    /// The resulting `Pipeline` implements `Hook` and can be registered with a dispatcher.
+    /// The resulting `Pipeline` implements `Hook` and can be registered with a router.
     fn handler<H>(self, handler: H) -> Pipeline<Self, H>
     where
         Self: Sized,
@@ -93,6 +201,10 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 }
+
+// ============================================================================
+// Chain (and_then)
+// ============================================================================
 
 /// A chain of two listeners.
 ///
@@ -112,18 +224,147 @@ where
     type Output = B::Output;
 
     async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
-        // First listener processes the event
         let Some(intermediate) = self.first.listen(event).await? else {
             return Ok(None);
         };
-        // Second listener processes the intermediate result
         self.second.listen(&intermediate).await
     }
 }
 
+// ============================================================================
+// Filter
+// ============================================================================
+
+/// A listener that filters events based on a predicate.
+///
+/// Created by [`Listener::filter`].
+pub struct Filter<L, F> {
+    listener: L,
+    predicate: F,
+}
+
+impl<L, F, In> Listener<In> for Filter<L, F>
+where
+    In: Message + Sync,
+    L: Listener<In>,
+    L::Output: Clone + Sync,
+    F: Fn(&L::Output) -> bool + Send + Sync + 'static,
+{
+    type Output = L::Output;
+
+    async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
+        let Some(output) = self.listener.listen(event).await? else {
+            return Ok(None);
+        };
+        if (self.predicate)(&output) {
+            Ok(Some(output))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+// ============================================================================
+// Map
+// ============================================================================
+
+/// A listener that transforms events using a synchronous mapper.
+///
+/// Created by [`Listener::map`].
+pub struct Map<L, F, Out = ()> {
+    listener: L,
+    mapper: F,
+    _phantom: std::marker::PhantomData<Out>,
+}
+
+impl<L, F, In, Out> Listener<In> for Map<L, F, Out>
+where
+    In: Message + Sync,
+    L: Listener<In>,
+    L::Output: Sync,
+    Out: Message,
+    F: Fn(L::Output) -> Out + Send + Sync + 'static,
+{
+    type Output = Out;
+
+    async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
+        let Some(output) = self.listener.listen(event).await? else {
+            return Ok(None);
+        };
+        Ok(Some((self.mapper)(output)))
+    }
+}
+
+// ============================================================================
+// Then (async map)
+// ============================================================================
+
+/// A listener that transforms events using an async mapper.
+///
+/// Created by [`Listener::then`].
+pub struct Then<L, F, Out = ()> {
+    listener: L,
+    mapper: F,
+    _phantom: std::marker::PhantomData<Out>,
+}
+
+impl<L, F, In, Out, Fut> Listener<In> for Then<L, F, Out>
+where
+    In: Message + Sync,
+    L: Listener<In>,
+    L::Output: Sync,
+    Out: Message,
+    F: Fn(L::Output) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Out> + Send,
+{
+    type Output = Out;
+
+    async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
+        let Some(output) = self.listener.listen(event).await? else {
+            return Ok(None);
+        };
+        Ok(Some((self.mapper)(output).await))
+    }
+}
+
+// ============================================================================
+// FilterMap
+// ============================================================================
+
+/// A listener that filters and transforms events in one step.
+///
+/// Created by [`Listener::filter_map`].
+pub struct FilterMap<L, F, Out = ()> {
+    listener: L,
+    mapper: F,
+    _phantom: std::marker::PhantomData<Out>,
+}
+
+impl<L, F, In, Out> Listener<In> for FilterMap<L, F, Out>
+where
+    In: Message + Sync,
+    L: Listener<In>,
+    L::Output: Sync,
+    Out: Message,
+    F: Fn(L::Output) -> Option<Out> + Send + Sync + 'static,
+{
+    type Output = Out;
+
+    async fn listen(&self, event: &In) -> Result<Option<Self::Output>, BoxError> {
+        let Some(output) = self.listener.listen(event).await? else {
+            return Ok(None);
+        };
+        Ok((self.mapper)(output))
+    }
+}
+
+// ============================================================================
+// Pipeline (Listener + Handler)
+// ============================================================================
+
 /// A complete pipeline connecting a Listener to a Handler.
 ///
-/// Implements [`Hook`] so it can be registered with a dispatcher.
+/// Implements [`Hook`] so it can be registered with a router.
 ///
 /// The pipeline executes in two phases:
 /// 1. **Listener Phase** (async): Gatekeeping and transformation
@@ -153,17 +394,12 @@ where
         &self,
         event: &In,
     ) -> Result<HookResult, Box<dyn std::error::Error + Send + Sync>> {
-        // Phase 1: Listener (Async, Gatekeeping/Transformation)
         match self.listener.listen(event).await {
             Ok(Some(out)) => {
-                // Phase 2: Handler (Async, Business Logic)
                 let result = self.handler.call(out).await;
                 result.into_response()
             }
-            Ok(None) => {
-                // Event was filtered out, continue to next hook
-                Ok(HookResult::Next)
-            }
+            Ok(None) => Ok(HookResult::Next),
             Err(e) => Err(e),
         }
     }

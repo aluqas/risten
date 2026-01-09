@@ -25,33 +25,38 @@
 // Core Traits & Types (from risten-core)
 // ============================================================================
 pub use risten_core::{
-    // Error types
-    BoxError,
-    // Listener
-    Chain,
-    DispatchError,
-    // Hook
-    DynHook,
-    // Router Traits
-    DynRouter,
     // Context / Extraction
+    AsyncFromEvent,
     ExtractError,
     ExtractHandler,
     FromEvent,
+    // Error types
+    BoxError,
+    DispatchError,
+    HookError,
+    RistenError,
     // Handler
     Handler,
     HandlerResult,
+    // Hook
+    DynHook,
     Hook,
-    HookError,
     HookResult,
+    // Listener (with declarative pipeline methods)
+    Chain,
+    Filter,
+    FilterMap,
+    Listener,
+    Map,
+    Pipeline,
+    Then,
+    // Message
+    Message,
     // Response
     IntoHookOutcome,
     IntoResponse,
-    Listener,
-    // Message
-    Message,
-    Pipeline,
-    RistenError,
+    // Router Traits
+    DynRouter,
     Router,
     RouterHook,
 };
@@ -123,22 +128,41 @@ impl<P, S> DynamicRouter<P, S> {
 
 impl<E, P, S> Router<E> for DynamicRouter<P, S>
 where
-    E: Message + Clone + Sync,
+    E: Message + Sync,
     P: HookProvider<E>,
     S: Send + Sync,
 {
     type Error = DispatchError;
 
-    async fn route(&self, event: E) -> Result<(), Self::Error> {
-        let hooks = self.provider.resolve(&event);
+    async fn route(&self, event: &E) -> Result<(), Self::Error> {
+        let hooks = self.provider.resolve(event);
         for hook in hooks {
-            match hook.on_event_dyn(&event).await {
+            match hook.on_event_dyn(event).await {
                 Ok(HookResult::Stop) => break,
                 Ok(HookResult::Next) => continue,
                 Err(e) => return Err(DispatchError::Listener(e)),
             }
         }
         Ok(())
+    }
+}
+
+// DynamicRouter as Listener (Native Integration)
+impl<E, P, S> Listener<E> for DynamicRouter<P, S>
+where
+    E: Message + Sync + Clone,
+    P: HookProvider<E> + 'static,
+    S: Send + Sync + 'static,
+{
+    type Output = E;
+
+    async fn listen(&self, event: &E) -> Result<Option<Self::Output>, BoxError> {
+        // Execute the router (zero-copy routing)
+        Router::route(self, event)
+            .await
+            .map_err(|e| Box::new(e) as BoxError)?;
+        // Clone only when returning to pass ownership downstream
+        Ok(Some(event.clone()))
     }
 }
 

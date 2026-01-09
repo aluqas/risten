@@ -1,8 +1,7 @@
 //! Simple dispatch tests using the available API.
 
 use risten::{
-    HookResult, Listener, Router, SimpleDynamicDispatcher,
-    delivery::SequentialDelivery,
+    HookResult, Listener, Router, SimpleDynamicDispatcher, delivery::SequentialDelivery,
     dynamic::RegistryBuilder,
 };
 use std::sync::{
@@ -31,19 +30,19 @@ async fn test_pipeline_route() {
     let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
 
     router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "!hello".to_string(),
         })
         .await
         .unwrap();
     router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "ignore".to_string(),
         })
         .await
         .unwrap();
     router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "!world".to_string(),
         })
         .await
@@ -81,7 +80,7 @@ async fn test_hook_ordering() {
 
     let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
     router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "test".to_string(),
         })
         .await
@@ -118,7 +117,7 @@ async fn test_stop_propagation() {
 
     let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
     router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "test".to_string(),
         })
         .await
@@ -148,7 +147,7 @@ async fn test_handler_error_propagation() {
     let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
 
     let result = router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "!fail".to_string(),
         })
         .await;
@@ -170,12 +169,9 @@ async fn test_handler_success() {
     let router = SimpleDynamicDispatcher::new(registry, SequentialDelivery::default());
 
     let result = router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "!success".to_string(),
         })
         .await;
-    assert!(
-        result.is_ok(),
-        "Route should succeed when handler succeeds"
-    );
+    assert!(result.is_ok(), "Route should succeed when handler succeeds");
 }

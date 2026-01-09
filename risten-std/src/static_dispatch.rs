@@ -106,14 +106,32 @@ impl<C> StaticRouter<C> {
         Self { chain }
     }
 
-    /// Route an event through the static chain.
-    pub async fn route<E>(&self, event: E) -> Result<(), BoxError>
+    /// Route an event through the static chain (zero-copy).
+    pub async fn route<E>(&self, event: &E) -> Result<(), BoxError>
     where
         E: Message + Sync,
         C: HookChain<E>,
     {
-        self.chain.dispatch_chain(&event).await?;
+        self.chain.dispatch_chain(event).await?;
         Ok(())
+    }
+}
+
+// Router as Listener (Native Integration)
+use risten_core::Listener;
+
+impl<C, E> Listener<E> for StaticRouter<C>
+where
+    E: Message + Sync + Clone,
+    C: HookChain<E>,
+{
+    type Output = E;
+
+    async fn listen(&self, event: &E) -> Result<Option<Self::Output>, BoxError> {
+        // Execute the router (dispatch chain) - zero-copy routing
+        self.route(event).await?;
+        // Clone only when returning to pass ownership downstream
+        Ok(Some(event.clone()))
     }
 }
 

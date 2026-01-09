@@ -26,7 +26,7 @@ async fn test_static_router() {
     let router = StaticRouter::new(chain);
 
     router
-        .route(TestEvent {
+        .route(&TestEvent {
             content: "test".to_string(),
         })
         .await
