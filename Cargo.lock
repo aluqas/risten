@@ -273,6 +273,7 @@ dependencies = [
 name = "risten-macros"
 version = "0.1.0"
 dependencies = [
+ "inventory",
  "proc-macro2",
  "quote",
  "syn",
@@ -283,6 +284,7 @@ name = "risten-std"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "inventory",
  "matchit",
  "phf",
  "risten-core",

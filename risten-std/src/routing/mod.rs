@@ -2,6 +2,5 @@
 //!
 //! These routers are compile-time fixed or read-only at runtime.
 
-pub mod trie;
-
-pub use trie::TrieRouter;
+#[cfg(feature = "inventory")]
+pub mod dispatch;

@@ -7,6 +7,7 @@
 //! - **Dynamic routing**: [`Registry`]
 //! - **Standard hooks**: Logging, Timeout
 //! - **Standard listeners**: Filter, Map
+//! - **Dispatch routing**: [`DispatchRouter`]
 
 #![deny(clippy::pub_use, clippy::wildcard_imports)]
 #![warn(missing_docs)]
@@ -18,5 +19,9 @@ pub use risten_core;
 pub mod dynamic;
 pub mod hooks;
 pub mod listeners;
+pub mod routing;
 pub mod static_dispatch;
 pub mod testing;
+
+#[cfg(feature = "inventory")]
+pub use inventory;
