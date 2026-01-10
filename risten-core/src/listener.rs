@@ -1,104 +1,42 @@
-//! # Rich Abstraction Layer (Listener)
+//! # Domain Gateway Layer (Listener)
 //!
-//! Wraps the primitive [`Hook`] layer to provide rich event processing features:
-//! type transformation, filtering, and declarative pipeline composition.
+//! A Listener is the entry point for a specific Event Domain.
+//! It is responsible for interpreting raw events, transforming them into
+//! domain-specific contexts, and deciding how to process them (usually by
+//! delegating to a [`Router`]).
 //!
 //! # Layer Position
 //!
-//! This is **Layer 2 (Rich Abstraction)** in the Risten architecture.
-//! Listeners wrap Hook mechanics internally while exposing a higher-level API
-//! focused on interpretation and decision-making rather than raw execution.
+//! This is **Layer 2 (Domain Gateway)** in the Risten architecture.
+//! It sits between the raw event source and the dispatch logic.
 //!
-//! # Design Philosophy
+//! # Responsibilities
 //!
-//! - **Wrapper**: Internally uses Hook mechanisms, adding gatekeeping and transformation
-//! - **Semantics**: "Listen and Decide" — not just "Do". Interpretation over action.
-//! - **No Side Effects**: Listeners focus on policy (pass/block/transform).
-//!   Side effects belong in [`Handler`].
+//! 1. **Interpretation**: Parse raw messages into strongly-typed domain events.
+//! 2. **Gatekeeping**: Filter invalid or irrelevant events early.
+//! 3. **Context**: enrich events with necessary context (DB connections, User info).
+//! 4. **Delegation**: Hand off the prepared event to a [`Router`] for execution.
 //!
-//! # Relationship to Other Layers
-//!
-//! | Layer | Role | Trait |
-//! |-------|------|-------|
-//! | Hook (L1) | Primitive execution | `on_event → Next/Stop` |
-//! | **Listener (L2)** | **Interpretation & transformation** | **`listen → Option<Out>`** |
-//! | Router (L3) | Event routing | `route → ()` |
-//! | Handler (L4) | Terminal business logic | `call → Out` |
-//!
-//! # Declarative Pipeline Construction
-//!
-//! Listeners support method chaining for building pipelines:
-//!
-//! ```rust,ignore
-//! let pipeline = AuthListener
-//!     .filter(|e| !e.author.is_bot)           // Gatekeeping
-//!     .then(|e| async move { e.load_ctx() })  // Async enrichment
-//!     .map(|ctx| CommandContext::from(ctx))   // Transformation
-//!     .handler(CommandHandler);               // → becomes a Hook
-//! ```
-//!
-//! The final `.handler()` call produces a [`Pipeline`] which implements [`Hook`],
-//! completing the cycle back to the primitive layer.
-//!
-//! [`Hook`]: crate::Hook
-//! [`Handler`]: crate::Handler
+//! [`Router`]: crate::Router
 
 use crate::{error::BoxError, handler::Handler, message::Message};
 use std::{future::Future, pin::Pin};
 
-/// A listener sits at the entry or intermediate points of the event pipeline.
-///
-/// Its role is to inspect an input event and optionally produce an output event
-/// or decide to route it further. Listeners can perform async operations such as
-/// database lookups for gatekeeping decisions.
-///
-/// # Gatekeeping vs Side Effects
-///
-/// Listeners should focus on **gatekeeping** (pass/block) and **transformation** (reshape).
-/// Side effects (database writes, API calls) belong in [`Handler`].
-///
-/// # Example
-///
-/// ```rust,ignore
-/// struct AuthListener;
-///
-/// impl Listener<RawEvent> for AuthListener {
-///     type Output = AuthenticatedEvent;
-///
-///     async fn listen(&self, event: &RawEvent) -> Result<Option<Self::Output>, BoxError> {
-///         // Async: Check user permissions from database
-///         let user = db.get_user(event.user_id).await?;
-///         if user.is_banned() {
-///             return Ok(None); // Block the event
-///         }
-///         Ok(Some(AuthenticatedEvent { event: event.clone(), user }))
-///     }
-/// }
-/// ```
+/// A domain gateway that interprets events.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a `Listener` for `{In}`",
     label = "missing `Listener` implementation",
     note = "Listeners must implement the `listen` method to process `{In}`."
 )]
 pub trait Listener<In: Message>: Send + Sync + 'static {
-    /// The type of message this listener produces.
     type Output: Message;
 
-    /// Inspects the input event and optionally transforms it into the Output type.
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(Some(output))`: The event was accepted and transformed.
-    /// - `Ok(None)`: The event was rejected/filtered (no error, just skip).
-    /// - `Err(e)`: An error occurred during processing.
     fn listen(
         &self,
         event: &In,
     ) -> impl Future<Output = Result<Option<Self::Output>, BoxError>> + Send;
 
     /// Chains this listener with another listener.
-    ///
-    /// The output of `self` becomes the input of `next`.
     fn and_then<Next>(self, next: Next) -> Chain<Self, Next>
     where
         Self: Sized,
@@ -110,15 +48,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
-    /// Filters the output of this listener using a predicate.
-    ///
-    /// If the predicate returns `false`, the event is dropped (returns `None`).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let filtered = my_listener.filter(|event| event.is_important());
-    /// ```
+    /// Filters the output of this listener.
     fn filter<F>(self, predicate: F) -> Filter<Self, F>
     where
         Self: Sized,
@@ -130,15 +60,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
-    /// Transforms the output of this listener using a synchronous mapper.
-    ///
-    /// The mapper always succeeds (the event passes through transformed).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let mapped = my_listener.map(|event| ProcessedEvent::from(event));
-    /// ```
+    /// Transforms the output of this listener (sync).
     fn map<F, Out>(self, mapper: F) -> Map<Self, F>
     where
         Self: Sized,
@@ -152,18 +74,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
-    /// Transforms the output of this listener using an async mapper.
-    ///
-    /// Use this for transformations that require async operations (e.g., DB lookups).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let enriched = my_listener.then(|event| async move {
-    ///     let user = db.get_user(event.user_id).await;
-    ///     EnrichedEvent { event, user }
-    /// });
-    /// ```
+    /// Transforms the output of this listener (async).
     fn then<F, Out, Fut>(self, mapper: F) -> Then<Self, F>
     where
         Self: Sized,
@@ -178,21 +89,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
-    /// Filters and transforms the output in one step.
-    ///
-    /// If the mapper returns `None`, the event is dropped.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let filtered_mapped = my_listener.filter_map(|event| {
-    ///     if event.is_valid() {
-    ///         Some(ProcessedEvent::from(event))
-    ///     } else {
-    ///         None
-    ///     }
-    /// });
-    /// ```
+    /// Filters and maps in one step.
     fn filter_map<F, Out>(self, mapper: F) -> FilterMap<Self, F>
     where
         Self: Sized,
@@ -206,9 +103,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
-    /// Connects this listener to a handler, creating a complete pipeline.
-    ///
-    /// The resulting `Pipeline` implements `Hook` and can be registered with a router.
+    /// Connects to a handler.
     fn handler<H>(self, handler: H) -> Pipeline<Self, H>
     where
         Self: Sized,
@@ -220,20 +115,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         }
     }
 
-    /// Catches errors from this listener and optionally recovers.
-    ///
-    /// The error handler receives the error and can return:
-    /// - `Some(output)`: Recover with a fallback value
-    /// - `None`: Swallow the error and filter out the event
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let resilient = my_listener.catch(|err| {
-    ///     log::warn!("Listener error: {}", err);
-    ///     None // Swallow error, filter event
-    /// });
-    /// ```
+    /// Catches errors.
     fn catch<F>(self, handler: F) -> Catch<Self, F>
     where
         Self: Sized,
@@ -242,10 +124,7 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
         Catch::new(self, handler)
     }
 
-    /// Boxes this listener for dynamic dispatch.
-    ///
-    /// This is useful when you need to store heterogeneous listeners
-    /// or when the concrete type cannot be known at compile time.
+    /// Boxes the listener.
     fn boxed(self) -> BoxListener<In, Self::Output>
     where
         Self: Sized,
@@ -255,9 +134,6 @@ pub trait Listener<In: Message>: Send + Sync + 'static {
     }
 }
 
-/// A chain of two listeners.
-///
-/// Created by [`Listener::and_then`]. The first listener's output becomes the second's input.
 pub struct Chain<A, B> {
     pub(crate) first: A,
     pub(crate) second: B,
@@ -280,9 +156,6 @@ where
     }
 }
 
-/// A listener that filters events based on a predicate.
-///
-/// Created by [`Listener::filter`].
 pub struct Filter<L, F> {
     listener: L,
     predicate: F,
@@ -309,9 +182,6 @@ where
     }
 }
 
-/// A listener that transforms events using a synchronous mapper.
-///
-/// Created by [`Listener::map`].
 pub struct Map<L, F, Out = ()> {
     listener: L,
     mapper: F,
@@ -336,9 +206,6 @@ where
     }
 }
 
-/// A listener that transforms events using an async mapper.
-///
-/// Created by [`Listener::then`].
 pub struct Then<L, F, Out = ()> {
     listener: L,
     mapper: F,
@@ -364,9 +231,6 @@ where
     }
 }
 
-/// A listener that filters and transforms events in one step.
-///
-/// Created by [`Listener::filter_map`].
 pub struct FilterMap<L, F, Out = ()> {
     listener: L,
     mapper: F,
@@ -391,17 +255,8 @@ where
     }
 }
 
-/// A complete pipeline connecting a Listener to a Handler.
-///
-/// Implements [`Hook`] so it can be registered with a router.
-///
-/// The pipeline executes in two phases:
-/// 1. **Listener Phase** (async): Gatekeeping and transformation
-/// 2. **Handler Phase** (async): Business logic and side effects
 pub struct Pipeline<L, H> {
-    /// The listener component (gatekeeper/transformer).
     pub listener: L,
-    /// The handler component (action/endpoint).
     pub handler: H,
 }
 
@@ -434,19 +289,6 @@ where
     }
 }
 
-/// A boxed, type-erased listener for dynamic dispatch.
-///
-/// Use this when you need to store heterogeneous listeners in collections
-/// or when the concrete listener type cannot be known at compile time.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let listeners: Vec<BoxListener<MyEvent, ProcessedEvent>> = vec![
-///     BoxListener::new(AuthListener),
-///     BoxListener::new(ValidationListener),
-/// ];
-/// ```
 pub struct BoxListener<In, Out> {
     inner: Box<dyn DynListener<In, Output = Out>>,
 }
@@ -456,7 +298,6 @@ where
     In: Message,
     Out: Message,
 {
-    /// Create a new boxed listener from any `Listener` implementation.
     pub fn new<L>(listener: L) -> Self
     where
         L: Listener<In, Output = Out>,
@@ -480,15 +321,8 @@ where
     }
 }
 
-/// Object-safe version of [`Listener`] for dynamic dispatch.
-///
-/// This trait is automatically implemented for any `Listener` and is used
-/// internally by [`BoxListener`].
 pub trait DynListener<In>: Send + Sync + 'static {
-    /// The output type of this listener.
     type Output: Message;
-
-    /// Object-safe listen method.
     fn listen_dyn<'a>(
         &'a self,
         event: &'a In,
@@ -510,26 +344,12 @@ where
     }
 }
 
-/// A listener that catches errors from the inner listener and optionally recovers.
-///
-/// The error handler can return `Some(output)` to recover with a fallback value,
-/// or `None` to swallow the error and filter out the event.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let resilient = my_listener.catch(|err| {
-///     log::warn!("Listener error: {}", err);
-///     None // Swallow error, filter event
-/// });
-/// ```
 pub struct Catch<L, F> {
     listener: L,
     handler: F,
 }
 
 impl<L, F> Catch<L, F> {
-    /// Create a new catch listener.
     pub fn new(listener: L, handler: F) -> Self {
         Self { listener, handler }
     }

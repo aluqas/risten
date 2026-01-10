@@ -5,7 +5,7 @@
 
 #![cfg(feature = "macros")]
 
-use risten::{BoxError, Handler, Hook, HookResult, Listener, Message, Pipeline};
+use risten::{BoxError, Handler, Hook, HookResult, Listener, Message, Pipeline, Router};
 
 // Test Event Type
 #[derive(Clone, Debug)]
@@ -152,7 +152,8 @@ async fn test_event_with_static_hooks() {
     };
 
     // Route should work
-    let result = router.route(event).await;
+    // CHANGE: Pass reference to event because Router::route takes &E
+    let result = router.route(&event).await;
     assert!(result.is_ok());
 }
 

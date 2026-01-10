@@ -77,7 +77,7 @@ pub use context::{
 };
 
 pub use error::{BoxError, HookError, RistenError, RoutingError};
-pub use handler::{Handler, HandlerResult};
+pub use handler::{DynHandler, Handler, HandlerResult};
 pub use hook::{DynHook, Hook, HookResult};
 pub use listener::{
     BoxListener, Catch, Chain, DynListener, Filter, FilterMap, Listener, Map, Pipeline, Then,

@@ -3,20 +3,6 @@
 //! `risten` is an event processing framework designed with a **static-first** philosophy.
 //! Compile-time optimizations are the default path; dynamic routing is available as an
 //! explicit escape hatch for runtime flexibility.
-//!
-//! ## Quick Start (Static Path - Recommended)
-//!
-//! ```rust,ignore
-//! use risten::{static_hooks, StaticRouter, HCons, HNil, Hook, HookResult};
-//!
-//! // Define your hooks
-//! struct MyHook;
-//! impl Hook<MyEvent> for MyHook { ... }
-//!
-//! // Build a static chain (zero-cost at runtime)
-//! type MyChain = HCons<MyHook, HNil>;
-//! static ROUTER: StaticRouter<MyChain> = ...;
-//! ```
 
 #![deny(clippy::pub_use, clippy::wildcard_imports)]
 #![warn(missing_docs)]
@@ -45,6 +31,7 @@ pub use risten_core::{
     FromEvent,
     Handled,
     // Handler
+    DynHandler,
     Handler,
     HandlerResult,
     Hook,
@@ -75,15 +62,27 @@ pub use risten_std::{
     static_fanout, static_hooks,
 };
 
-// Dynamic Routing
-pub use risten_std::dynamic::{
-    DynamicRouter, HookProvider, Registry, RegistryBuilder, SimpleDynamicDispatcher,
+// Dynamic Routing & New Dispatch
+pub use risten_std::{
+    dynamic::{
+        DynamicRouter, HookProvider, Registry, RegistryBuilder, SimpleDynamicDispatcher,
+    },
+    routing::{
+        dispatch::{DispatchRouter, HandlerRegistration, ErasedHandlerWrapper},
+    }
 };
 
 /// Dynamic routing support module.
 pub mod dynamic {
     pub use risten_std::dynamic::{
         DynamicRouter, HookProvider, Registry, RegistryBuilder, SimpleDynamicDispatcher,
+    };
+}
+
+/// Routing components.
+pub mod routing {
+    pub use risten_std::routing::{
+        dispatch::{DispatchRouter, HandlerRegistration, ErasedHandlerWrapper},
     };
 }
 
@@ -113,12 +112,6 @@ pub mod testing {
 }
 
 /// Prelude module - common imports for Risten.
-///
-/// # Usage
-///
-/// ```rust,ignore
-/// use risten::prelude::*;
-/// ```
 pub mod prelude {
     pub use crate::{
         // Extraction
@@ -146,11 +139,19 @@ pub mod prelude {
         Router,
         RoutingError,
         Then,
+        // New Router
+        DispatchRouter,
+        // Event Wrapper
+        Event,
+        DynHandler,
     };
+
+    #[cfg(feature = "macros")]
+    pub use crate::{on, subscribe, handler};
 }
 
 #[cfg(feature = "macros")]
-pub use risten_macros::{Message, dispatch, event, handler, main};
+pub use risten_macros::{Message, dispatch, event, handler, main, subscribe, on};
 
 #[cfg(feature = "inventory")]
 pub use inventory;

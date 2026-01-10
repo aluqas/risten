@@ -18,7 +18,7 @@ risten-macros = { version = "0.1.0", path = "../risten-macros", optional = true 
 tracing = { version = "0.1", optional = true }
 tower = { version = "0.5", optional = true }
 linkme = { version = "0.3", optional = true }
-inventory = { version = "0.3.15", optional = true }
+inventory = { version = "0.3.21", optional = true }
 
 
 # Integration backends
@@ -31,7 +31,7 @@ macros = ["dep:risten-macros"]
 tracing = ["dep:tracing"]
 tower = ["dep:tower"]
 linkme = ["dep:linkme"]
-inventory = ["dep:inventory"]
+inventory = ["dep:inventory", "risten-std/inventory"]
 matchit = ["dep:matchit"]
 phf = ["dep:phf"]
 

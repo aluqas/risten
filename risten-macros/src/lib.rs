@@ -7,15 +7,6 @@ use syn::{
 };
 
 /// Derive macro for implementing `Message` trait.
-///
-/// # Usage
-///
-/// ```rust,ignore
-/// #[derive(Message)]
-/// struct MyEvent { ... }
-/// ```
-///
-/// This generates `impl risten::Message for MyEvent {}`.
 #[proc_macro_derive(Message)]
 pub fn derive_message(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -29,58 +20,8 @@ pub fn derive_message(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// Parsed attributes for #[risten::event(...)]
-struct EventArgs {
-    priority: Option<i32>,
-    name: Option<String>,
-    filter: Option<Expr>,
-}
+// ... existing code ...
 
-impl Parse for EventArgs {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut priority = None;
-        let mut name = None;
-        let mut filter = None;
-
-        while !input.is_empty() {
-            let ident: Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
-
-            match ident.to_string().as_str() {
-                "priority" => {
-                    let lit: LitInt = input.parse()?;
-                    priority = Some(lit.base10_parse()?);
-                }
-                "name" => {
-                    let lit: LitStr = input.parse()?;
-                    name = Some(lit.value());
-                }
-                "filter" => {
-                    let expr: Expr = input.parse()?;
-                    filter = Some(expr);
-                }
-                other => {
-                    return Err(syn::Error::new(
-                        ident.span(),
-                        format!("unknown attribute: {}", other),
-                    ));
-                }
-            }
-
-            if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-            }
-        }
-
-        Ok(EventArgs {
-            priority,
-            name,
-            filter,
-        })
-    }
-}
-
-/// Attribute macro to convert async functions into Hook implementations.
 #[proc_macro_attribute]
 pub fn event(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as EventArgs);
@@ -135,7 +76,6 @@ pub fn event(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    // Generate filter check if filter attribute is present
     let filter_check = args.filter.as_ref().map(|filter_expr| {
         quote! {
             if !(#filter_expr)(#event_pat) {
@@ -166,7 +106,58 @@ pub fn event(attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// Parsed attributes for #[risten::handler(...)]
+// ... EventArgs, HandlerArgs ...
+
+struct EventArgs {
+    priority: Option<i32>,
+    name: Option<String>,
+    filter: Option<Expr>,
+}
+
+impl Parse for EventArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut priority = None;
+        let mut name = None;
+        let mut filter = None;
+
+        while !input.is_empty() {
+            let ident: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+
+            match ident.to_string().as_str() {
+                "priority" => {
+                    let lit: LitInt = input.parse()?;
+                    priority = Some(lit.base10_parse()?);
+                }
+                "name" => {
+                    let lit: LitStr = input.parse()?;
+                    name = Some(lit.value());
+                }
+                "filter" => {
+                    let expr: Expr = input.parse()?;
+                    filter = Some(expr);
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown attribute: {}", other),
+                    ));
+                }
+            }
+
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        Ok(EventArgs {
+            priority,
+            name,
+            filter,
+        })
+    }
+}
+
 struct HandlerArgs {
     name: Option<String>,
     event: Option<Type>,
@@ -207,67 +198,14 @@ impl Parse for HandlerArgs {
     }
 }
 
-/// Attribute macro to convert functions into Handler implementations.
-///
-/// Supports both **async** and **sync** functions. The macro auto-detects
-/// which variant to use based on the `async` keyword.
-///
-/// # Features
-///
-/// - **Single argument**: Direct handler (no extraction)
-/// - **Multiple arguments**: Each argument is extracted via `AsyncFromEvent` (async)
-///   or `FromEvent` (sync)
-/// - **Auto-detect**: Sync vs async is determined by function signature
-///
-/// # Usage
-///
-/// ## Async Handler (single argument)
-/// ```rust,ignore
-/// #[handler]
-/// async fn my_handler(msg: MessageEvent) -> Result<()> {
-///     // msg is passed directly
-/// }
-/// ```
-///
-/// ## Sync Handler (single argument)
-/// ```rust,ignore
-/// #[handler]
-/// fn my_sync_handler(msg: MessageEvent) -> Result<()> {
-///     // Sync handler - wrapped in async automatically
-/// }
-/// ```
-///
-/// ## Extraction Handler (multiple arguments)
-/// ```rust,ignore
-/// #[handler(event = MessageEvent)]
-/// async fn my_handler(
-///     user: UserContext,    // Extracted via AsyncFromEvent<MessageEvent>
-///     db: DbContext,        // Extracted via AsyncFromEvent<MessageEvent>
-/// ) -> Result<()> {
-///     // Both arguments are auto-extracted from the event
-/// }
-/// ```
-///
-/// ## Sync Extraction Handler
-/// ```rust,ignore
-/// #[handler(event = MessageEvent)]
-/// fn my_sync_handler(
-///     user: UserContext,    // Extracted via FromEvent<MessageEvent>
-///     cmd: Command,         // Extracted via FromEvent<MessageEvent>
-/// ) -> Result<()> {
-///     // Sync extraction
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as HandlerArgs);
-    let input = parse_macro_input!(item as ItemFn);
-
+fn generate_handler_impl(
+    input: &ItemFn,
+    args: &HandlerArgs,
+) -> (proc_macro2::TokenStream, Type) {
     let fn_name = &input.sig.ident;
     let fn_vis = &input.vis;
     let fn_block = &input.block;
     let is_async = input.sig.asyncness.is_some();
-
     let inputs = &input.sig.inputs;
     let arg_count = inputs.len();
 
@@ -282,18 +220,10 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         fn_name.clone()
     };
 
-    // Single argument: simple handler (no extraction)
     if arg_count == 1 && args.event.is_none() {
-        let (input_pat, input_type) = match inputs.first() {
-            Some(FnArg::Typed(pat_type)) => (&pat_type.pat, &pat_type.ty),
-            _ => {
-                return syn::Error::new_spanned(
-                    inputs,
-                    "Handler function must take at least one argument",
-                )
-                .to_compile_error()
-                .into();
-            }
+        let (input_pat, input_type) = match inputs.first().unwrap() {
+            FnArg::Typed(pat_type) => (&pat_type.pat, &pat_type.ty),
+            _ => panic!("Handler function must take at least one argument"),
         };
 
         let call_body = if is_async {
@@ -302,7 +232,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
             quote! { { #fn_block } }
         };
 
-        let expanded = quote! {
+        let impl_code = quote! {
             #[allow(non_camel_case_types)]
             #[derive(Clone, Copy, Debug, Default)]
             #[doc = concat!("Auto-generated Handler from `#[risten::handler]` on `", stringify!(#fn_name), "`")]
@@ -317,32 +247,25 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         };
 
-        return TokenStream::from(expanded);
+        let event_type = *input_type.clone();
+        return (impl_code, event_type);
     }
 
-    // Multiple arguments OR explicit event type: extraction handler
     let event_type = match args.event {
         Some(ref ty) => quote! { #ty },
         None => {
-            // If no explicit event type, use the first argument's type
-            match inputs.first() {
-                Some(FnArg::Typed(pat_type)) => {
+            match inputs.first().unwrap() {
+                FnArg::Typed(pat_type) => {
                     let ty = &pat_type.ty;
                     quote! { #ty }
                 }
-                _ => {
-                    return syn::Error::new_spanned(
-                        inputs,
-                        "Handler must have at least one argument or specify event type",
-                    )
-                    .to_compile_error()
-                    .into();
-                }
+                _ => panic!("Handler must have at least one argument or specify event type"),
             }
         }
     };
 
-    // Collect all arguments for extraction
+    let parsed_event_type: Type = syn::parse2(event_type.clone()).unwrap();
+
     let mut arg_pats = Vec::new();
     let mut arg_types = Vec::new();
     let mut extraction_code = Vec::new();
@@ -370,15 +293,10 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
                     });
                 }
             }
-            FnArg::Receiver(_) => {
-                return syn::Error::new_spanned(arg, "Handler cannot have self parameter")
-                    .to_compile_error()
-                    .into();
-            }
+            FnArg::Receiver(_) => panic!("Handler cannot have self parameter"),
         }
     }
 
-    // Build the function call with extracted arguments
     let arg_names: Vec<_> = (0..arg_count)
         .map(|i| Ident::new(&format!("__arg_{}", i), fn_name.span()))
         .collect();
@@ -399,7 +317,7 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let expanded = quote! {
+    let impl_code = quote! {
         #[allow(non_camel_case_types)]
         #[derive(Clone, Copy, Debug, Default)]
         #[doc = concat!("Auto-generated Handler (extraction) from `#[risten::handler]` on `", stringify!(#fn_name), "`")]
@@ -415,10 +333,82 @@ pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    (impl_code, parsed_event_type)
+}
+
+#[proc_macro_attribute]
+pub fn handler(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as HandlerArgs);
+    let input = parse_macro_input!(item as ItemFn);
+
+    let (expanded, _) = generate_handler_impl(&input, &args);
     TokenStream::from(expanded)
 }
 
-/// Attribute macro for async main setup with Tokio runtime.
+struct SubscribeArgs {
+    event_type: Option<Type>,
+}
+
+impl Parse for SubscribeArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let event_type = if input.is_empty() {
+            None
+        } else {
+            Some(input.parse()?)
+        };
+        Ok(SubscribeArgs { event_type })
+    }
+}
+
+#[proc_macro_attribute]
+pub fn subscribe(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as SubscribeArgs);
+    let input = parse_macro_input!(item as ItemFn);
+    let fn_name = &input.sig.ident;
+
+    let handler_args = HandlerArgs {
+        name: None,
+        event: args.event_type.clone(),
+    };
+
+    let (handler_impl, event_type) = generate_handler_impl(&input, &handler_args);
+    let handler_struct_name = fn_name;
+
+    let static_name = Ident::new(&format!("__HANDLER_INSTANCE_{}", fn_name).to_uppercase(), fn_name.span());
+    let wrapper_name = Ident::new(&format!("__HANDLER_WRAPPER_{}", fn_name).to_uppercase(), fn_name.span());
+
+    // Generate code using ErasedHandlerWrapper
+    // We assume risten::routing::ErasedHandlerWrapper is available
+    let submit_code = quote! {
+        // Instantiate the handler
+        static #static_name: #handler_struct_name = #handler_struct_name;
+
+        // Wrap it in ErasedHandlerWrapper
+        static #wrapper_name: ::risten::routing::ErasedHandlerWrapper<#event_type, #handler_struct_name> =
+            ::risten::routing::ErasedHandlerWrapper::new(#handler_struct_name);
+
+        ::risten::inventory::submit! {
+            ::risten::routing::HandlerRegistration {
+                type_id: ::std::any::TypeId::of::<#event_type>(),
+                handler: &#wrapper_name,
+                priority: 0,
+            }
+        }
+    };
+
+    let expanded = quote! {
+        #handler_impl
+        #submit_code
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn on(attr: TokenStream, item: TokenStream) -> TokenStream {
+    subscribe(attr, item)
+}
+
 #[proc_macro_attribute]
 pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
@@ -429,22 +419,17 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// Extract handler type from variant doc comments.
-/// Looks for `/// @handler(SomeHookType)` in the doc comments.
 fn extract_handler_attr(attrs: &[Attribute]) -> Option<syn::Path> {
     for attr in attrs {
         if attr.path().is_ident("doc") {
-            // Parse the doc string
             if let Meta::NameValue(nv) = &attr.meta {
                 if let syn::Expr::Lit(expr_lit) = &nv.value {
                     if let syn::Lit::Str(lit_str) = &expr_lit.lit {
                         let content = lit_str.value();
-                        // Look for @handler(TypeName)
                         if let Some(start) = content.find("@handler(") {
                             let after = &content[start + 9..];
                             if let Some(end) = after.find(')') {
                                 let handler_name = after[..end].trim();
-                                // Parse as a path
                                 if let Ok(path) = syn::parse_str::<syn::Path>(handler_name) {
                                     return Some(path);
                                 }
@@ -458,32 +443,6 @@ fn extract_handler_attr(attrs: &[Attribute]) -> Option<syn::Path> {
     None
 }
 
-/// Derive macro to generate dispatch logic from an enum of events.
-///
-/// # Usage
-///
-/// ```rust,ignore
-/// #[risten::dispatch]
-/// enum AppEvent {
-///     #[handler = MessageHook]  // Static hook binding
-///     Message(MessageEvent),
-///
-///     #[handler = ReadyHook]
-///     Ready(ReadyEvent),
-///
-///     Shutdown,  // No handler = skip
-/// }
-/// ```
-///
-/// Generates:
-/// - `dispatch_match()` - Basic variant matching
-/// - `variant_name()` - Get variant name as &str
-/// - `dispatch_to_hooks()` - **Static** async dispatch to bound hooks
-/// - `dispatch_types` module - Type aliases for inner types
-///
-/// # Status
-///
-/// This macro is **Tier 2 (Experimental)** and may change.
 #[proc_macro_attribute]
 pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
@@ -499,7 +458,6 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // Build match arms for dispatch_match (basic - always returns Next)
     let match_arms = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         match &variant.fields {
@@ -527,7 +485,6 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    // Build match arms for variant_name
     let name_arms = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         match &variant.fields {
@@ -549,7 +506,6 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    // Build STATIC dispatch arms with handler attribute
     let static_dispatch_arms = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         let handler_path = extract_handler_attr(&variant.attrs);
@@ -557,7 +513,6 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
         match &variant.fields {
             syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
                 if let Some(handler) = handler_path {
-                    // Static handler binding - call the hook directly
                     quote! {
                         #enum_name::#variant_name(inner) => {
                             let hook = #handler;
@@ -565,7 +520,6 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         }
                     }
                 } else {
-                    // No handler - just continue
                     quote! {
                         #enum_name::#variant_name(_) => {
                             ::core::result::Result::Ok(::risten::HookResult::Next)
@@ -574,7 +528,6 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
             syn::Fields::Unit => {
-                // Unit variants can't have handlers (no inner data)
                 quote! {
                     #enum_name::#variant_name => {
                         ::core::result::Result::Ok(::risten::HookResult::Next)
@@ -591,57 +544,22 @@ pub fn dispatch(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
-    // Generate variant type aliases (unused but kept for API)
-    let _variant_markers = variants.iter().filter_map(|variant| {
-        let variant_name = &variant.ident;
-        match &variant.fields {
-            syn::Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                let inner_type = &fields.unnamed.first().unwrap().ty;
-                Some(quote! {
-                    /// Type alias for this variant's inner type.
-                    pub type #variant_name = #inner_type;
-                })
-            }
-            _ => None,
-        }
-    });
-
-    // Generate handler info for each variant (unused but kept for API)
-    let _handler_info = variants.iter().filter_map(|variant| {
-        let variant_name = &variant.ident;
-        let handler_path = extract_handler_attr(&variant.attrs);
-        handler_path.map(|h| {
-            let _handler_str = quote!(#h).to_string();
-            quote! {
-                /// Handler type for this variant.
-                pub type #variant_name = #h;
-            }
-        })
-    });
-
     let expanded = quote! {
         #input
 
         impl #enum_name {
-            /// Basic dispatch - matches on variant, always returns Next.
             pub fn dispatch_match(&self) -> ::risten::HookResult {
                 match self {
                     #(#match_arms),*
                 }
             }
 
-            /// Get the variant name as a static string.
             pub fn variant_name(&self) -> &'static str {
                 match self {
                     #(#name_arms),*
                 }
             }
 
-            /// **Static** async dispatch to bound hooks.
-            ///
-            /// Each variant with a `/// @handler(HookType)` doc comment
-            /// will have its inner data dispatched to that hook at compile time.
-            /// No vtable, no dynamic dispatch - fully inlined.
             pub async fn dispatch_to_hooks(&self) -> ::core::result::Result<::risten::HookResult, ::std::boxed::Box<dyn ::std::error::Error + Send + Sync>> {
                 match self {
                     #(#static_dispatch_arms),*
