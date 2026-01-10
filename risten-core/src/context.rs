@@ -121,6 +121,38 @@ where
     }
 }
 
+/// A trait for extracting data from an event using GATs (Generic Associated Types).
+///
+/// Unlike [`FromEvent`] which returns an owned type, `FromEventGat` can return
+/// borrowed data with a lifetime tied to the event, enabling zero-copy extraction.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// struct ContentRef;
+///
+/// impl FromEventGat<MessageEvent> for ContentRef {
+///     type Output<'a> = &'a str where MessageEvent: 'a;
+///     type Error = Infallible;
+///
+///     fn extract<'a>(event: &'a MessageEvent) -> Result<&'a str, Self::Error> {
+///         Ok(&event.content)  // Zero-copy!
+///     }
+/// }
+/// ```
+pub trait FromEventGat<E> {
+    /// The output type, which may borrow from the event.
+    type Output<'a>
+    where
+        E: 'a;
+
+    /// The error type returned if extraction fails.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Extract data from the event.
+    fn extract<'a>(event: &'a E) -> Result<Self::Output<'a>, Self::Error>;
+}
+
 // Blanket Implementations
 
 impl<E, T> FromEvent<E> for Option<T>
@@ -392,3 +424,110 @@ impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
 impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
 impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
 impl_sync_extract_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
+
+// ============================================================================
+// Zero-Copy Extraction (Phase 2)
+// ============================================================================
+
+/// A zero-copy extractor that provides a reference to the entire event.
+///
+/// Unlike [`Event<E>`] which clones the event, `RefEvent` provides direct
+/// access to the event reference, enabling zero-copy processing.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use risten_core::RefEvent;
+///
+/// async fn my_handler(event: RefEvent<'_, MyEvent>) {
+///     println!("Content: {}", event.0.content);
+/// }
+/// ```
+pub struct RefEvent<'a, E>(pub &'a E);
+
+impl<E> FromEventGat<E> for RefEvent<'_, E> {
+    type Output<'a>
+        = RefEvent<'a, E>
+    where
+        E: 'a;
+    type Error = Infallible;
+
+    fn extract<'a>(event: &'a E) -> Result<RefEvent<'a, E>, Self::Error> {
+        Ok(RefEvent(event))
+    }
+}
+
+/// A handler that uses GAT-based extractors for zero-copy event processing.
+///
+/// Unlike [`ExtractHandler`] which requires owned extractor outputs,
+/// `BorrowedExtractHandler` uses [`FromEventGat`] to enable extractors
+/// that borrow from the input event.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use risten_core::{BorrowedExtractHandler, RefEvent};
+///
+/// // Zero-copy handler - receives reference to event
+/// let handler = BorrowedExtractHandler::new(|event: RefEvent<'_, MyEvent>| async move {
+///     println!("Processing: {}", event.0.content);
+///     Ok(())
+/// });
+/// ```
+///
+/// # Limitations
+///
+/// Due to Rust's lifetime constraints with async functions, the handler
+/// function must be `for<'a>` bounded, meaning it must work with any lifetime.
+pub struct BorrowedExtractHandler<F, E, Args> {
+    func: F,
+    _marker: std::marker::PhantomData<(E, Args)>,
+}
+
+impl<F, E, Args> BorrowedExtractHandler<F, E, Args> {
+    /// Create a new borrowed extract handler.
+    pub fn new(func: F) -> Self {
+        Self {
+            func,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+// Implementation for 1 GAT extractor
+impl<F, E, T1, Out> crate::Handler<E> for BorrowedExtractHandler<F, E, (T1,)>
+where
+    E: crate::Message + Sync,
+    T1: FromEventGat<E> + Send + Sync + 'static,
+    for<'a> T1::Output<'a>: Send,
+    F: for<'a> Fn(T1::Output<'a>) -> Out + Send + Sync + 'static,
+    Out: crate::handler::HandlerResult,
+{
+    type Output = Result<Out, ExtractError>;
+
+    async fn call(&self, input: E) -> Self::Output {
+        let extracted = T1::extract(&input).map_err(|e| ExtractError::new(e.to_string()))?;
+        Ok((self.func)(extracted))
+    }
+}
+
+#[cfg(test)]
+mod borrowed_tests {
+    use super::*;
+
+    #[derive(Debug, Clone)]
+    struct TestEvent {
+        content: String,
+    }
+
+    impl crate::Message for TestEvent {}
+
+    #[test]
+    fn test_ref_event_extract() {
+        let event = TestEvent {
+            content: "hello".into(),
+        };
+        let extracted = RefEvent::<TestEvent>::extract(&event).unwrap();
+        assert_eq!(extracted.0.content, "hello");
+    }
+}

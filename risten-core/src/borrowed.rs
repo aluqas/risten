@@ -1,7 +1,5 @@
 //! Zero-Copy message and listener support.
 
-use crate::{listener::Listener, message::Message};
-
 /// A marker trait for borrowed messages.
 pub trait RawMessage<'a>: Send + Sync {}
 
@@ -19,25 +17,15 @@ pub trait BorrowedListener<In>: Send + Sync + 'static {
     fn listen<'a>(&self, event: &'a In) -> Option<Self::Output<'a>>;
 }
 
-impl<L, In> BorrowedListener<In> for L
-where
-    L: Listener<In>,
-    In: Message,
-    L::Output: Message,
-{
-    type Output<'a>
-        = L::Output
-    where
-        In: 'a;
-
-    fn listen<'a>(&self, event: &'a In) -> Option<L::Output> {
-        Listener::listen(self, event)
-    }
-}
+// Note: A blanket impl from Listener to BorrowedListener is not possible
+// because Listener::listen is async, but BorrowedListener::listen is sync.
+// Users must implement BorrowedListener directly for zero-copy use cases.
 
 /// Chain of two borrowed listeners.
 pub struct BorrowedChain<A, B> {
+    /// The first listener in the chain.
     pub first: A,
+    /// The second listener in the chain.
     pub second: B,
 }
 

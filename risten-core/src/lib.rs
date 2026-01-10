@@ -58,6 +58,7 @@
 #![deny(clippy::wildcard_imports)]
 #![warn(missing_docs)]
 
+mod borrowed;
 mod context;
 mod error;
 mod handler;
@@ -66,11 +67,15 @@ mod listener;
 mod message;
 mod response;
 mod router;
+mod shared;
 
 // Re-exports
+pub use borrowed::{BorrowedChain, BorrowedListener, RawMessage};
 pub use context::{
-    AsyncFromEvent, Event, ExtractError, ExtractHandler, FromEvent, SyncExtractHandler,
+    AsyncFromEvent, BorrowedExtractHandler, Event, ExtractError, ExtractHandler, FromEvent,
+    FromEventGat, RefEvent, SyncExtractHandler,
 };
+
 pub use error::{BoxError, HookError, RistenError, RoutingError};
 pub use handler::{Handler, HandlerResult};
 pub use hook::{DynHook, Hook, HookResult};
@@ -80,3 +85,4 @@ pub use listener::{
 pub use message::Message;
 pub use response::{Continue, Handled, IntoHookOutcome, IntoResponse};
 pub use router::{DynRouter, RouteResult, Router, RouterHook};
+pub use shared::SharedEvent;
