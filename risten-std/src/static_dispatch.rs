@@ -115,6 +115,7 @@ where
 
         Ok(RouteResult {
             stopped: result == HookResult::Stop,
+            executed_count: 0, // Static router doesn't track count
         })
     }
 }

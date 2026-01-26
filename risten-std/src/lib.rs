@@ -3,11 +3,34 @@
 //! Standard implementations for the Risten event processing framework.
 //!
 //! This crate provides:
-//! - **Static routing**: [`HCons`], [`HNil`], [`StaticRouter`], [`static_hooks!`] macro
-//! - **Dynamic routing**: [`Registry`]
+//!
+//! ## Routers
+//!
+//! - **Static routing**: [`StaticRouter`], [`StaticFanoutRouter`] - Zero-cost, compile-time optimized
+//! - **Dispatch routing**: [`DispatchRouter`] - Inventory-based automatic collection
+//! - **Dynamic routing**: [`Registry`] - Runtime registration
+//!
+//! ## Helpers
+//!
 //! - **Standard hooks**: Logging, Timeout
 //! - **Standard listeners**: Filter, Map
-//! - **Dispatch routing**: [`DispatchRouter`]
+//! - **Macros**: [`static_hooks!`], [`static_fanout!`]
+//!
+//! # Quick Start
+//!
+//! ```rust,ignore
+//! use risten_std::{StaticRouter, static_hooks};
+//!
+//! // Create a zero-cost router with static hooks
+//! let router = StaticRouter::new(static_hooks![
+//!     LoggingHook,
+//!     my_handler,
+//! ]);
+//!
+//! // Or use inventory-based collection
+//! use risten_std::routing::DispatchRouter;
+//! let router = DispatchRouter::<MyEvent>::new();
+//! ```
 
 #![deny(clippy::pub_use, clippy::wildcard_imports)]
 #![warn(missing_docs)]

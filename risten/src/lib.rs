@@ -24,6 +24,8 @@ pub use risten_core::{
     // Router Traits
     DynRouter,
     Event,
+    // Execution Strategy
+    ExecutionStrategy,
     ExtractError,
     ExtractHandler,
     Filter,

@@ -83,6 +83,7 @@ where
             .map_err(RoutingError::Listener)?;
         Ok(RouteResult {
             stopped: result.stopped,
+            executed_count: 0, // Fanout doesn't track count
         })
     }
 }

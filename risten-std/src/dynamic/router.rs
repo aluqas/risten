@@ -47,7 +47,10 @@ where
                 Err(e) => return Err(RoutingError::Listener(e)),
             }
         }
-        Ok(RouteResult { stopped })
+        Ok(RouteResult {
+            stopped,
+            executed_count: 0, // Dynamic router doesn't track count
+        })
     }
 }
 

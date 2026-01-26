@@ -5,54 +5,52 @@
 //! This crate has minimal dependencies and is designed to be imported by
 //! plugins and extensions that don't need the full `risten-std` implementation.
 //!
-//! # Four-Layer Architecture
+//! # Core Components
 //!
-//! Risten is built on a strict 4-layer architecture, each layer serving a
-//! distinct purpose in the event processing pipeline:
+//! Risten is built on a layered architecture where each component has a clear responsibility:
 //!
-//! ## Layer 1: Primitive Kernel ([`Hook`])
+//! ## [`Hook`] - Primitive Kernel
 //!
-//! The lowest-level entry point for ecosystem extensions. Similar to JavaScript
+//! The lowest-level entry point for event processing. Similar to JavaScript
 //! event handlers in its simplicity: receives an event, returns `Next` or `Stop`.
 //!
 //! - **Atomic**: The indivisible unit of event processing
-//! - **Universal**: All higher abstractions (Listener, Router, Handler) ultimately
-//!   convert to Hooks for execution
-//! - **Low-Level Access**: Plugins and middleware can target this layer to operate
-//!   independently of framework conveniences
+//! - **Universal**: All higher abstractions ultimately convert to Hooks for execution
+//! - **Low-Level Access**: Plugins and middleware can target this layer directly
 //!
-//! ## Layer 2: Rich Abstraction ([`Listener`])
+//! ## [`Router`] - Event Distribution Engine
 //!
-//! Wraps Hook mechanics to provide rich Listener Architecture features:
-//! type transformation, filtering, and pipeline composition.
+//! The core abstraction for **"how events flow"**. A Router is responsible for:
+//!
+//! - **Condition Dispatch**: Route events based on type/value (static match)
+//! - **Collection**: Aggregate handlers defined across the codebase (e.g., via `inventory`)
+//! - **Execution**: Control how handlers run (sequential, parallel, all-at-once)
+//!
+//! **Important**: Routers do NOT know about Extractors. They simply call `handler.call(event)`.
+//! Argument resolution is the Handler's internal concern.
+//!
+//! ## [`Listener`] - Domain Gateway
+//!
+//! Wraps Hook mechanics to provide rich features: type transformation, filtering,
+//! and pipeline composition.
 //!
 //! - **Wrapper**: Uses Hook internally while adding gatekeeping and transformation
-//! - **Semantics**: Not just "do" but "listen and decide" — interpretation over action
+//! - **Semantics**: "Listen and decide" — interpretation over action
 //! - **Pipeline**: Combinators like `filter`, `map`, `then` enable declarative pipelines
 //!
-//! ## Layer 3: Routing ([`Router`])
+//! ## [`Handler`] - Execution Container
 //!
-//! An abstraction over Listeners that routes events to the next handler.
-//! From outside, it's just another processing step; internally it manages
-//! complex routing decisions.
-//!
-//! - **Abstraction**: Bundles multiple Listeners/Hooks into a single unit
-//! - **Transparent**: Acts as a pass-through that dispatches to internal handlers
-//! - **Composable**: Via [`RouterHook`], routers become Hooks themselves
-//!
-//! ## Layer 4: Context ([`Handler`])
-//!
-//! Wraps user-defined methods to inject framework-specific context (extractors,
+//! Wraps user-defined functions to inject framework-specific context (Extractors,
 //! error handling, etc.). This is the terminal point of the pipeline.
 //!
 //! - **Wrapper**: Adds event-architecture features to plain functions
+//! - **Extractor Integration**: Via `ExtractHandler`, arguments are automatically resolved
 //! - **Terminal**: The endpoint where business logic executes
-//! - **Optional**: Users can implement Handler directly or use raw functions
 //!
 //! # Error Types
 //!
 //! - [`RistenError`] - Top-level error type
-//! - [`DispatchError`] - Routing-related errors
+//! - [`RoutingError`] - Routing-related errors
 //! - [`HookError`] - Hook execution errors
 
 #![deny(clippy::wildcard_imports)]
@@ -84,5 +82,5 @@ pub use listener::{
 };
 pub use message::Message;
 pub use response::{Continue, Handled, IntoHookOutcome, IntoResponse};
-pub use router::{DynRouter, RouteResult, Router, RouterHook};
+pub use router::{DynRouter, ExecutionStrategy, RouteResult, Router, RouterHook};
 pub use shared::SharedEvent;
